@@ -1,0 +1,909 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { FileItem, PendingOpenInfo, PlaylistOptions, SortMode } from "@shared/types";
+
+const SORT_LABELS: Record<SortMode, string> = {
+  playlist: "Playlist Order",
+  filename: "Filename",
+  created: "Created Time",
+  random: "Random"
+};
+
+const RATING_OPTIONS = [0, 1, 2, 3, 4, 5];
+const DEFAULT_OPTIONS: PlaylistOptions = {
+  sort: "playlist",
+  ratingMin: 0,
+  tags: []
+};
+
+export default function App() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const lastPlayedRef = useRef<number | null>(null);
+  const scanningRef = useRef(false);
+  const latestRootRef = useRef<string | null>(null);
+  const latestOptionsRef = useRef<PlaylistOptions>(DEFAULT_OPTIONS);
+  const thumbnailRefreshRef = useRef<number | null>(null);
+  const [libraryRoot, setLibraryRoot] = useState<string | null>(null);
+  const [pendingOpen, setPendingOpen] = useState<PendingOpenInfo | null>(null);
+  const [playlistVisible, setPlaylistVisible] = useState(true);
+  const [items, setItems] = useState<FileItem[]>([]);
+  const [currentId, setCurrentId] = useState<number | null>(null);
+  const [externalFile, setExternalFile] = useState<{ name: string; url: string; path: string } | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [volume, setVolume] = useState(0.85);
+  const [muted, setMuted] = useState(false);
+  const [loopPlaylist, setLoopPlaylist] = useState(false);
+  const [options, setOptions] = useState<PlaylistOptions>(DEFAULT_OPTIONS);
+  const [status, setStatus] = useState<string | null>(null);
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const [ratingMenuOpen, setRatingMenuOpen] = useState(false);
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const [topTags, setTopTags] = useState<string[]>([]);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+
+  const currentItem = useMemo(() => items.find((item) => item.id === currentId) ?? null, [items, currentId]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const updateTheme = () => {
+      document.documentElement.classList.toggle("dark", mediaQuery.matches);
+    };
+    updateTheme();
+    mediaQuery.addEventListener("change", updateTheme);
+    return () => mediaQuery.removeEventListener("change", updateTheme);
+  }, []);
+
+  useEffect(() => {
+    latestRootRef.current = libraryRoot;
+    latestOptionsRef.current = options;
+  }, [libraryRoot, options]);
+
+  useEffect(() => {
+    window.api.getAppState().then((state) => {
+      setLibraryRoot(state.libraryRoot);
+      setPendingOpen(state.pendingOpen);
+      setPlaylistVisible(state.playlistVisible ?? true);
+      if (state.libraryRoot) {
+        scanAndRefresh(state.libraryRoot);
+      }
+    });
+
+    const unsubscribePending = window.api.onPendingOpen((info) => setPendingOpen(info));
+    const unsubscribeMedia = window.api.onMediaControl((action) => {
+      if (action === "toggle") {
+        togglePlay();
+      } else if (action === "next") {
+        playNext();
+      } else if (action === "previous") {
+        playPrev();
+      }
+    });
+    const unsubscribeThumbs = window.api.onThumbnailReady(() => {
+      if (thumbnailRefreshRef.current) return;
+      thumbnailRefreshRef.current = window.setTimeout(() => {
+        thumbnailRefreshRef.current = null;
+        const root = latestRootRef.current;
+        if (root) loadPlaylist(root, latestOptionsRef.current);
+      }, 500);
+    });
+
+    return () => {
+      unsubscribePending();
+      unsubscribeMedia();
+      unsubscribeThumbs();
+      if (thumbnailRefreshRef.current) {
+        window.clearTimeout(thumbnailRefreshRef.current);
+        thumbnailRefreshRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (libraryRoot && !scanningRef.current) {
+      loadPlaylist(libraryRoot, options);
+    }
+  }, [libraryRoot, options.sort, options.ratingMin, options.tags.join("|")]);
+
+  useEffect(() => {
+    if (!currentId && items.length) {
+      setCurrentId(items[0].id);
+    }
+  }, [items, currentId]);
+
+  useEffect(() => {
+    if (externalFile && videoRef.current) {
+      videoRef.current.src = externalFile.url;
+      videoRef.current.play().catch(() => null);
+    }
+  }, [externalFile]);
+
+  useEffect(() => {
+    if (!currentItem || !videoRef.current) return;
+    if (externalFile) return;
+
+    videoRef.current.load();
+    videoRef.current.play().catch(() => null);
+  }, [currentItem?.id]);
+
+  useEffect(() => {
+    setCurrentTime(0);
+    setDuration(0);
+    lastPlayedRef.current = null;
+  }, [currentItem?.id, externalFile?.path]);
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+    videoRef.current.volume = muted ? 0 : volume;
+  }, [volume, muted]);
+
+  useEffect(() => {
+    if (!currentItem || externalFile) return;
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentItem.name,
+        artist: libraryRoot ?? "",
+        artwork: currentItem.thumbnailUrl
+          ? [{ src: currentItem.thumbnailUrl, sizes: "320x180", type: "image/jpeg" }]
+          : []
+      });
+      navigator.mediaSession.setActionHandler("play", () => videoRef.current?.play().catch(() => null));
+      navigator.mediaSession.setActionHandler("pause", () => videoRef.current?.pause());
+      navigator.mediaSession.setActionHandler("nexttrack", () => playNext());
+      navigator.mediaSession.setActionHandler("previoustrack", () => playPrev());
+    }
+  }, [currentItem?.id, libraryRoot, externalFile]);
+
+  useEffect(() => {
+    if (!tagMenuOpen && !filterMenuOpen) return;
+    window.api.getTopTags().then((tags) => setTopTags(tags));
+  }, [tagMenuOpen, filterMenuOpen]);
+
+  const loadPlaylist = async (root: string, nextOptions: PlaylistOptions) => {
+    const list = await window.api.getPlaylist(nextOptions);
+    setItems(list);
+    setStatus(null);
+    setCurrentId((prev) => (prev && list.some((item) => item.id === prev) ? prev : list[0]?.id ?? null));
+  };
+
+  const scanAndRefresh = async (root: string) => {
+    scanningRef.current = true;
+    setStatus("Scanning library...");
+    try {
+      await window.api.scanLibrary();
+      await loadPlaylist(root, options);
+    } finally {
+      scanningRef.current = false;
+    }
+  };
+
+  const handleChooseRoot = async () => {
+    const root = await window.api.chooseLibraryRoot();
+    if (!root) return;
+    await window.api.setLibraryRoot(root);
+    setLibraryRoot(root);
+    await scanAndRefresh(root);
+  };
+
+  const handleDrop = async (event: React.DragEvent) => {
+    event.preventDefault();
+    setIsDraggingFile(false);
+    const file = event.dataTransfer.files?.[0];
+    if (!file || !file.path) return;
+    const info = await window.api.inspectPath(file.path);
+    if (!info) return;
+    setPendingOpen(info);
+  };
+
+  const handleDragOver = (event: React.DragEvent) => {
+    event.preventDefault();
+    if (!isDraggingFile) setIsDraggingFile(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDraggingFile(false);
+  };
+
+  const resolvePending = async (action: "switch" | "play" | "cancel") => {
+    if (!pendingOpen) return;
+    const info = pendingOpen;
+    setPendingOpen(null);
+    await window.api.clearPendingOpen();
+
+    if (action === "cancel") return;
+
+    if (info.kind === "folder") {
+      if (action === "switch") {
+        await window.api.setLibraryRoot(info.path);
+        setLibraryRoot(info.path);
+        await scanAndRefresh(info.path);
+      }
+      return;
+    }
+
+    if (info.kind === "file" && info.inCurrentRoot) {
+      playByAbsolutePath(info.path);
+      return;
+    }
+
+    if (action === "play") {
+      const url = info.fileUrl ?? new URL(`file://${info.path}`).toString();
+      setExternalFile({ name: fileName(info.path), url, path: info.path });
+      setCurrentId(null);
+      return;
+    }
+
+    if (action === "switch") {
+      const root = info.foundDbRoot ?? info.suggestedRoot;
+      await window.api.setLibraryRoot(root);
+      setLibraryRoot(root);
+      await scanAndRefresh(root);
+      playByAbsolutePath(info.path);
+    }
+  };
+
+  const playByAbsolutePath = (targetPath: string) => {
+    if (!items.length) return;
+    const match = items.find((item) => item.absolutePath === targetPath);
+    if (match) {
+      setExternalFile(null);
+      setCurrentId(match.id);
+    }
+  };
+
+  const togglePlay = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      video.play().catch(() => null);
+    } else {
+      video.pause();
+    }
+  };
+
+  const playNext = () => {
+    if (!items.length || externalFile) return;
+    const index = items.findIndex((item) => item.id === currentId);
+    if (index === -1) return;
+    if (index < items.length - 1) {
+      setCurrentId(items[index + 1].id);
+    } else if (loopPlaylist) {
+      setCurrentId(items[0].id);
+    }
+  };
+
+  const playPrev = () => {
+    if (!items.length || externalFile) return;
+    const video = videoRef.current;
+    if (video && video.currentTime > 3) {
+      video.currentTime = 0;
+      return;
+    }
+    const index = items.findIndex((item) => item.id === currentId);
+    if (index === -1) return;
+    if (index > 0) {
+      setCurrentId(items[index - 1].id);
+    } else if (loopPlaylist) {
+      setCurrentId(items[items.length - 1].id);
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (!videoRef.current) return;
+    setCurrentTime(videoRef.current.currentTime);
+  };
+
+  const handleLoadedMetadata = () => {
+    if (!videoRef.current) return;
+    const durationSec = videoRef.current.duration || 0;
+    setDuration(durationSec);
+    if (currentItem) {
+      window.api.setDuration(currentItem.id, Math.round(durationSec * 1000));
+    }
+  };
+
+  const handlePlay = () => {
+    setIsPlaying(true);
+    if (currentItem && lastPlayedRef.current !== currentItem.id) {
+      window.api.setLastPlayed(currentItem.id);
+      lastPlayedRef.current = currentItem.id;
+    }
+  };
+
+  const handlePause = () => {
+    setIsPlaying(false);
+  };
+
+  const handleSeek = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!videoRef.current) return;
+    const next = Number(event.target.value);
+    videoRef.current.currentTime = next;
+    setCurrentTime(next);
+  };
+
+  const handleVolume = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setVolume(Number(event.target.value));
+    if (muted) setMuted(false);
+  };
+
+  const handleRating = async (value: number) => {
+    if (!currentItem) return;
+    await window.api.setRating(currentItem.id, value);
+    setRatingMenuOpen(false);
+    if (libraryRoot) loadPlaylist(libraryRoot, options);
+  };
+
+  const handleTagToggle = async (tag: string) => {
+    if (!currentItem) return;
+    await window.api.toggleTag(currentItem.id, tag);
+    if (libraryRoot) loadPlaylist(libraryRoot, options);
+  };
+
+  const handleAddTag = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const tag = String(formData.get("tag") ?? "").trim();
+    if (!tag || !currentItem) return;
+    await window.api.toggleTag(currentItem.id, tag);
+    form.reset();
+    if (libraryRoot) loadPlaylist(libraryRoot, options);
+    window.api.getTopTags().then((tags) => setTopTags(tags));
+  };
+
+  const handleFilterTag = (tag: string) => {
+    setOptions((prev) => {
+      const exists = prev.tags.includes(tag);
+      return {
+        ...prev,
+        tags: exists ? prev.tags.filter((t) => t !== tag) : [...prev.tags, tag]
+      };
+    });
+  };
+
+  const handleOrderMove = (from: number, to: number) => {
+    if (from === to || options.sort !== "playlist") return;
+    const updated = [...items];
+    const [moved] = updated.splice(from, 1);
+    updated.splice(to, 0, moved);
+    setItems(updated);
+    window.api.saveOrder(updated.map((item) => item.id));
+  };
+
+  const togglePlaylist = () => {
+    const next = !playlistVisible;
+    setPlaylistVisible(next);
+    window.api.setPlaylistVisible(next);
+  };
+
+  const activeName = externalFile?.name ?? currentItem?.name ?? "";
+
+  return (
+    <div
+      className="min-h-screen px-6 py-5"
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+    >
+      <div className="mx-auto max-w-[1600px]">
+        <header className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600">Plyer</p>
+            <h1 className="text-2xl font-display text-ink-900 dark:text-white">Desktop Video Library</h1>
+            <p className="text-sm text-ink-600 dark:text-slate-300">
+              {libraryRoot ? `Library root: ${libraryRoot}` : "Choose a folder to start"}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="rounded-xl bg-ink-900 px-4 py-2 text-sm font-semibold text-white shadow-glow transition hover:-translate-y-0.5 hover:shadow-soft"
+              onClick={handleChooseRoot}
+            >
+              Choose Folder
+            </button>
+            <button
+              className="rounded-xl border border-mist bg-white/70 px-4 py-2 text-sm font-semibold text-ink-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-white"
+              onClick={() => libraryRoot && scanAndRefresh(libraryRoot)}
+              disabled={!libraryRoot}
+            >
+              Rescan
+            </button>
+            <button
+              className="rounded-xl border border-mist bg-white/70 px-4 py-2 text-sm font-semibold text-ink-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-white"
+              onClick={togglePlaylist}
+            >
+              {playlistVisible ? "Hide Playlist" : "Show Playlist"}
+            </button>
+          </div>
+        </header>
+
+        <div
+          className={`mt-6 grid gap-6 ${
+            playlistVisible ? "grid-cols-[minmax(0,1fr)_360px]" : "grid-cols-1"
+          }`}
+        >
+          <section className="space-y-4">
+            <div className="relative overflow-hidden rounded-3xl bg-slate-900 shadow-soft">
+              <div className="video-frame relative aspect-video w-full">
+                <video
+                  ref={videoRef}
+                  className="h-full w-full rounded-3xl object-contain"
+                  src={externalFile ? externalFile.url : currentItem?.fileUrl ?? ""}
+                  onTimeUpdate={handleTimeUpdate}
+                  onLoadedMetadata={handleLoadedMetadata}
+                  onPlay={handlePlay}
+                  onPause={handlePause}
+                  onEnded={playNext}
+                  muted={muted}
+                  controls={false}
+                />
+                {!activeName && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white/80">
+                    <div className="rounded-full border border-white/40 bg-white/10 px-5 py-2 text-xs uppercase tracking-[0.3em]">
+                      Drop a folder or video
+                    </div>
+                    <p className="text-sm">Your playback starts here.</p>
+                  </div>
+                )}
+                {activeName && (
+                  <div className="absolute left-6 top-6 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white/80">
+                    Now Playing
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-3">
+                  <button
+                    className="rounded-2xl bg-ink-900 px-4 py-3 text-white shadow-soft transition hover:-translate-y-0.5"
+                    onClick={playPrev}
+                  >
+                    ◀◀
+                  </button>
+                  <button
+                    className="rounded-2xl bg-ocean px-4 py-3 text-white shadow-soft transition hover:-translate-y-0.5"
+                    onClick={togglePlay}
+                  >
+                    {isPlaying ? "❚❚" : "▶"}
+                  </button>
+                  <button
+                    className="rounded-2xl bg-ink-900 px-4 py-3 text-white shadow-soft transition hover:-translate-y-0.5"
+                    onClick={playNext}
+                  >
+                    ▶▶
+                  </button>
+                </div>
+
+                <div className="flex flex-1 items-center gap-3">
+                  <span className="text-xs font-semibold text-ink-600 dark:text-slate-300">
+                    {formatDuration(currentTime)}
+                  </span>
+                  <input
+                    className="controls-range w-full"
+                    type="range"
+                    min={0}
+                    max={duration || 0}
+                    step={0.1}
+                    value={currentTime}
+                    onChange={handleSeek}
+                  />
+                  <span className="text-xs font-semibold text-ink-600 dark:text-slate-300">
+                    {formatDuration(duration)}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    className="rounded-xl border border-mist bg-white px-3 py-2 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    onClick={() => setMuted((prev) => !prev)}
+                  >
+                    {muted ? "Unmute" : "Mute"}
+                  </button>
+                  <input
+                    className="controls-range w-28"
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={muted ? 0 : volume}
+                    onChange={handleVolume}
+                  />
+                </div>
+
+                <div className="relative">
+                  <button
+                    className="rounded-xl border border-mist bg-white px-3 py-2 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    onClick={() => {
+                      setTagMenuOpen((prev) => !prev);
+                      setRatingMenuOpen(false);
+                    }}
+                    disabled={!currentItem || !!externalFile}
+                  >
+                    Tag
+                  </button>
+                  {tagMenuOpen && currentItem && (
+                    <div className="absolute right-0 z-20 mt-2 w-60 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
+                        Tags
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        {topTags.map((tag) => {
+                          const active = currentItem.tags.includes(tag);
+                          return (
+                            <button
+                              key={tag}
+                              className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
+                                active
+                                  ? "bg-ocean/10 text-ocean"
+                                  : "bg-slatewash text-ink-700 dark:bg-white/5 dark:text-white"
+                              }`}
+                              onClick={() => handleTagToggle(tag)}
+                            >
+                              <span>{tag}</span>
+                              <span>{active ? "✓" : ""}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <form className="mt-3 flex gap-2" onSubmit={handleAddTag}>
+                        <input
+                          className="w-full rounded-xl border border-mist bg-white px-2 py-1 text-xs text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                          name="tag"
+                          placeholder="Add tag"
+                        />
+                        <button className="rounded-xl bg-ink-900 px-3 py-1 text-xs font-semibold text-white">
+                          Add
+                        </button>
+                      </form>
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <button
+                    className="rounded-xl border border-mist bg-white px-3 py-2 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    onClick={() => {
+                      setRatingMenuOpen((prev) => !prev);
+                      setTagMenuOpen(false);
+                    }}
+                    disabled={!currentItem || !!externalFile}
+                  >
+                    Rating
+                  </button>
+                  {ratingMenuOpen && currentItem && (
+                    <div className="absolute right-0 z-20 mt-2 w-40 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
+                        Rating
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        {RATING_OPTIONS.map((rating) => (
+                          <button
+                            key={rating}
+                            className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
+                              currentItem.rating === rating
+                                ? "bg-coral/10 text-coral"
+                                : "bg-slatewash text-ink-700 dark:bg-white/5 dark:text-white"
+                            }`}
+                            onClick={() => handleRating(rating)}
+                          >
+                            <span>{rating === 0 ? "No rating" : `${rating} stars`}</span>
+                            <span>{currentItem.rating === rating ? "✓" : ""}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-lg font-display text-ink-900 dark:text-white">
+                    {externalFile?.name ?? currentItem?.name ?? ""}
+                  </p>
+                  <p className="text-xs text-ink-600 dark:text-slate-300">
+                    {externalFile?.path ?? currentItem?.path ?? ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-ink-600 dark:text-slate-300">Rating</span>
+                  <RatingStars rating={currentItem?.rating ?? 0} />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {playlistVisible && (
+            <aside className="rounded-3xl border border-white/70 bg-white/80 p-4 shadow-soft backdrop-blur dark:border-white/10 dark:bg-white/5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-display text-ink-900 dark:text-white">Current Playlist</h2>
+                  <p className="text-xs text-ink-600 dark:text-slate-300">{items.length} videos</p>
+                </div>
+                <button
+                  className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                    loopPlaylist
+                      ? "bg-ocean text-white"
+                      : "border border-mist bg-white text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  }`}
+                  onClick={() => setLoopPlaylist((prev) => !prev)}
+                >
+                  Loop
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
+                  Sort
+                </label>
+                <select
+                  className="rounded-xl border border-mist bg-white px-3 py-2 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  value={options.sort}
+                  onChange={(event) =>
+                    setOptions((prev) => ({ ...prev, sort: event.target.value as SortMode }))
+                  }
+                >
+                  {Object.entries(SORT_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  className="rounded-xl border border-mist bg-white px-3 py-2 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  onClick={() => setFilterMenuOpen((prev) => !prev)}
+                >
+                  Filters
+                </button>
+              </div>
+
+              {filterMenuOpen && (
+                <div className="mt-4 rounded-2xl border border-mist bg-white/80 p-3 text-sm dark:border-white/10 dark:bg-white/5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
+                      Rating
+                    </span>
+                    <select
+                      className="rounded-lg border border-mist bg-white px-2 py-1 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                      value={options.ratingMin}
+                      onChange={(event) =>
+                        setOptions((prev) => ({ ...prev, ratingMin: Number(event.target.value) }))
+                      }
+                    >
+                      {RATING_OPTIONS.map((rating) => (
+                        <option key={rating} value={rating}>
+                          {rating === 0 ? "No filter" : `${rating}+`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
+                      Tags (AND)
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {topTags.length === 0 && (
+                        <span className="text-xs text-ink-500 dark:text-slate-400">No tags yet</span>
+                      )}
+                      {topTags.map((tag) => {
+                        const active = options.tags.includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                              active
+                                ? "bg-ocean text-white"
+                                : "border border-mist bg-white text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                            }`}
+                            onClick={() => handleFilterTag(tag)}
+                          >
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 space-y-3 overflow-y-auto pr-1" style={{ maxHeight: "60vh" }}>
+                {items.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-mist p-4 text-sm text-ink-600 dark:border-white/10 dark:text-slate-300">
+                    No videos found yet. Drop a folder or rescan to populate this playlist.
+                  </div>
+                )}
+                {items.map((item, index) => {
+                  const active = item.id === currentId;
+                  return (
+                    <div
+                      key={item.id}
+                      className={`group flex gap-3 rounded-2xl border p-3 transition ${
+                        active
+                          ? "border-ocean bg-ocean/10"
+                          : "border-transparent bg-white/70 hover:border-mist hover:bg-white dark:bg-white/5"
+                      }`}
+                      draggable={options.sort === "playlist"}
+                      onDragStart={() => setDragIndex(index)}
+                      onDragEnd={() => setDragIndex(null)}
+                      onDragOver={(event) => {
+                        if (options.sort !== "playlist") return;
+                        event.preventDefault();
+                      }}
+                      onDrop={() => {
+                        if (dragIndex === null) return;
+                        handleOrderMove(dragIndex, index);
+                        setDragIndex(null);
+                      }}
+                      onClick={() => {
+                        setExternalFile(null);
+                        setCurrentId(item.id);
+                      }}
+                    >
+                      <div className="relative h-16 w-24 overflow-hidden rounded-xl bg-slate-900">
+                        {item.thumbnailUrl ? (
+                          <img src={item.thumbnailUrl} alt={item.name} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-xs text-white/70">
+                            no thumb
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-ink-900 dark:text-white">{item.name}</p>
+                            <p className="text-xs text-ink-500 dark:text-slate-300">{item.path}</p>
+                          </div>
+                          <span className="text-xs text-ink-500 dark:text-slate-400">
+                            {formatDuration(item.durationMs / 1000)}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          {item.tags.slice(0, 3).map((tag) => (
+                            <span
+                              key={tag}
+                              className="rounded-full bg-ink-900/10 px-2 py-0.5 text-[10px] font-semibold text-ink-700 dark:bg-white/10 dark:text-white"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                          <RatingStars rating={item.rating} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </aside>
+          )}
+        </div>
+      </div>
+
+      {status && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-ink-900 px-4 py-2 text-xs font-semibold text-white">
+          {status}
+        </div>
+      )}
+
+      {isDraggingFile && (
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-ink-900/40 text-white">
+          <div className="rounded-3xl border border-white/40 bg-white/10 px-8 py-6 text-center">
+            <p className="text-lg font-semibold">Drop to load a new library</p>
+            <p className="text-sm text-white/70">Folders switch the root. Files play and can update root.</p>
+          </div>
+        </div>
+      )}
+
+      {pendingOpen && (
+        <PendingOpenModal
+          info={pendingOpen}
+          onCancel={() => resolvePending("cancel")}
+          onSwitch={() => resolvePending("switch")}
+          onPlay={() => resolvePending("play")}
+        />
+      )}
+    </div>
+  );
+}
+
+function RatingStars({ rating }: { rating: number }) {
+  return (
+    <div className="flex items-center gap-1 text-[10px]">
+      {Array.from({ length: 5 }).map((_, index) => (
+        <span key={index} className={index < rating ? "text-coral" : "text-ink-400 dark:text-slate-500"}>
+          ★
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function PendingOpenModal({
+  info,
+  onCancel,
+  onSwitch,
+  onPlay
+}: {
+  info: PendingOpenInfo;
+  onCancel: () => void;
+  onSwitch: () => void;
+  onPlay: () => void;
+}) {
+  const isFile = info.kind === "file";
+  const title = isFile ? "Open video" : "Switch library";
+  const description = isFile
+    ? info.inCurrentRoot
+      ? "This file is already inside the current library. Play it now?"
+      : "This file is outside the current library. You can switch the root or just play it once."
+    : "Switch library root to this folder?";
+  const showSwitch = !isFile || !info.inCurrentRoot;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/50">
+      <div className="w-full max-w-md rounded-3xl border border-white/20 bg-white p-6 shadow-soft dark:border-white/10 dark:bg-slate-900">
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
+          {title}
+        </p>
+        <h3 className="mt-2 text-xl font-display text-ink-900 dark:text-white">{fileName(info.path)}</h3>
+        <p className="mt-2 text-sm text-ink-600 dark:text-slate-300">{description}</p>
+        {info.foundDbRoot && (
+          <p className="mt-2 text-xs text-ink-500 dark:text-slate-400">
+            Found existing library at {info.foundDbRoot}
+          </p>
+        )}
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          {showSwitch && (
+            <button
+              className="rounded-xl bg-ink-900 px-4 py-2 text-sm font-semibold text-white"
+              onClick={onSwitch}
+            >
+              {isFile ? "Switch & Play" : "Switch Root"}
+            </button>
+          )}
+          {isFile && !info.inCurrentRoot && (
+            <button
+              className="rounded-xl border border-mist bg-white px-4 py-2 text-sm font-semibold text-ink-700"
+              onClick={onPlay}
+            >
+              Play Once
+            </button>
+          )}
+          {isFile && info.inCurrentRoot && (
+            <button
+              className="rounded-xl border border-mist bg-white px-4 py-2 text-sm font-semibold text-ink-700"
+              onClick={onPlay}
+            >
+              Play
+            </button>
+          )}
+          <button
+            className="rounded-xl border border-mist bg-white px-4 py-2 text-sm font-semibold text-ink-700"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatDuration(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "00:00";
+  const total = Math.floor(seconds);
+  const hrs = Math.floor(total / 3600);
+  const mins = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hrs > 0) return `${hrs}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function fileName(filePath: string) {
+  const parts = filePath.split(/[\\/]/);
+  return parts[parts.length - 1] ?? filePath;
+}

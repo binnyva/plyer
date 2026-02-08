@@ -1,0 +1,6 @@
+0Meta/
+node_modules/
+dist/
+.cache/
+.playr.sqlite*
+.DS_Store
