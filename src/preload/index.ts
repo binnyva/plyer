@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { PendingOpenInfo, PlaylistOptions } from "../shared/types";
+import type { PendingOpenInfo, PlaylistRequest } from "../shared/types";
 
 contextBridge.exposeInMainWorld("api", {
   getAppState: () => ipcRenderer.invoke("app:get-state"),
@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("library:inspect-path", path),
   setLibraryRoot: (root: string) => ipcRenderer.invoke("library:set-root", root),
   scanLibrary: () => ipcRenderer.invoke("library:scan"),
-  getPlaylist: (options: PlaylistOptions) => ipcRenderer.invoke("playlist:get", options),
+  getPlaylist: (options: PlaylistRequest) => ipcRenderer.invoke("playlist:get", options),
   setRating: (fileId: number, rating: number) => ipcRenderer.invoke("file:set-rating", { fileId, rating }),
   toggleTag: (fileId: number, tagName: string) =>
     ipcRenderer.invoke("file:toggle-tag", { fileId, tagName }),
@@ -29,8 +29,9 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.on("media-control", handler);
     return () => ipcRenderer.removeListener("media-control", handler);
   },
-  onThumbnailReady: (cb: () => void) => {
-    const handler = () => cb();
+  onThumbnailReady: (cb: (payload: { filePath: string; thumbPath: string; thumbnailUrl: string }) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, payload: { filePath: string; thumbPath: string; thumbnailUrl: string }) =>
+      cb(payload);
     ipcRenderer.on("library:thumbnail-ready", handler);
     return () => ipcRenderer.removeListener("library:thumbnail-ready", handler);
   },

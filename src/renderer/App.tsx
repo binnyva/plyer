@@ -14,18 +14,22 @@ const DEFAULT_OPTIONS: PlaylistOptions = {
   ratingMin: 0,
   tags: []
 };
+const PAGE_SIZE = 50;
 
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastPlayedRef = useRef<number | null>(null);
   const scanningRef = useRef(false);
-  const latestRootRef = useRef<string | null>(null);
-  const latestOptionsRef = useRef<PlaylistOptions>(DEFAULT_OPTIONS);
-  const thumbnailRefreshRef = useRef<number | null>(null);
+  const itemsRef = useRef<FileItem[]>([]);
+  const loadingRef = useRef(false);
   const [libraryRoot, setLibraryRoot] = useState<string | null>(null);
   const [pendingOpen, setPendingOpen] = useState<PendingOpenInfo | null>(null);
   const [playlistVisible, setPlaylistVisible] = useState(true);
   const [items, setItems] = useState<FileItem[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingPage, setIsLoadingPage] = useState(false);
+  const [randomSeed, setRandomSeed] = useState(() => Date.now());
   const [currentId, setCurrentId] = useState<number | null>(null);
   const [externalFile, setExternalFile] = useState<{ name: string; url: string; path: string } | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -56,9 +60,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    latestRootRef.current = libraryRoot;
-    latestOptionsRef.current = options;
-  }, [libraryRoot, options]);
+    itemsRef.current = items;
+  }, [items]);
 
   useEffect(() => {
     window.api.getAppState().then((state) => {
@@ -66,7 +69,7 @@ export default function App() {
       setPendingOpen(state.pendingOpen);
       setPlaylistVisible(state.playlistVisible ?? true);
       if (state.libraryRoot) {
-        scanAndRefresh(state.libraryRoot);
+        scanAndRefresh();
       }
     });
 
@@ -80,31 +83,33 @@ export default function App() {
         playPrev();
       }
     });
-    const unsubscribeThumbs = window.api.onThumbnailReady(() => {
-      if (thumbnailRefreshRef.current) return;
-      thumbnailRefreshRef.current = window.setTimeout(() => {
-        thumbnailRefreshRef.current = null;
-        const root = latestRootRef.current;
-        if (root) loadPlaylist(root, latestOptionsRef.current);
-      }, 500);
+    const unsubscribeThumbs = window.api.onThumbnailReady((payload) => {
+      setItems((prev) => {
+        const index = prev.findIndex((item) => item.absolutePath === payload.filePath);
+        if (index === -1) return prev;
+        const next = [...prev];
+        const existing = next[index];
+        next[index] = {
+          ...existing,
+          thumbnailPath: payload.thumbPath,
+          thumbnailUrl: payload.thumbnailUrl
+        };
+        return next;
+      });
     });
 
     return () => {
       unsubscribePending();
       unsubscribeMedia();
       unsubscribeThumbs();
-      if (thumbnailRefreshRef.current) {
-        window.clearTimeout(thumbnailRefreshRef.current);
-        thumbnailRefreshRef.current = null;
-      }
     };
   }, []);
 
   useEffect(() => {
     if (libraryRoot && !scanningRef.current) {
-      loadPlaylist(libraryRoot, options);
+      loadPlaylistPage(0, true);
     }
-  }, [libraryRoot, options.sort, options.ratingMin, options.tags.join("|")]);
+  }, [libraryRoot, options.sort, options.ratingMin, options.tags.join("|"), randomSeed]);
 
   useEffect(() => {
     if (!currentId && items.length) {
@@ -160,19 +165,47 @@ export default function App() {
     window.api.getTopTags().then((tags) => setTopTags(tags));
   }, [tagMenuOpen, filterMenuOpen]);
 
-  const loadPlaylist = async (root: string, nextOptions: PlaylistOptions) => {
-    const list = await window.api.getPlaylist(nextOptions);
-    setItems(list);
-    setStatus(null);
-    setCurrentId((prev) => (prev && list.some((item) => item.id === prev) ? prev : list[0]?.id ?? null));
+  const buildPlaylistRequest = (offset: number) => ({
+    ...options,
+    limit: PAGE_SIZE,
+    offset,
+    seed: options.sort === "random" ? randomSeed : undefined
+  });
+
+  const loadPlaylistPage = async (offset: number, reset: boolean) => {
+    loadingRef.current = true;
+    setIsLoadingPage(true);
+    try {
+      const result = await window.api.getPlaylist(buildPlaylistRequest(offset));
+      setItems((prev) => (reset ? result.items : [...prev, ...result.items]));
+      setTotalCount(result.total);
+      const nextCount = reset ? result.items.length : offset + result.items.length;
+      setHasMore(nextCount < result.total);
+      setStatus(null);
+      if (reset) {
+        setCurrentId((prev) =>
+          prev && result.items.some((item) => item.id === prev) ? prev : result.items[0]?.id ?? null
+        );
+      }
+      return result;
+    } finally {
+      loadingRef.current = false;
+      setIsLoadingPage(false);
+    }
   };
 
-  const scanAndRefresh = async (root: string) => {
+  const loadMore = async () => {
+    if (loadingRef.current || !hasMore) return;
+    const offset = itemsRef.current.length;
+    await loadPlaylistPage(offset, false);
+  };
+
+  const scanAndRefresh = async () => {
     scanningRef.current = true;
     setStatus("Scanning library...");
     try {
       await window.api.scanLibrary();
-      await loadPlaylist(root, options);
+      await loadPlaylistPage(0, true);
     } finally {
       scanningRef.current = false;
     }
@@ -183,7 +216,7 @@ export default function App() {
     if (!root) return;
     await window.api.setLibraryRoot(root);
     setLibraryRoot(root);
-    await scanAndRefresh(root);
+    await scanAndRefresh();
   };
 
   const handleDrop = async (event: React.DragEvent) => {
@@ -217,13 +250,13 @@ export default function App() {
       if (action === "switch") {
         await window.api.setLibraryRoot(info.path);
         setLibraryRoot(info.path);
-        await scanAndRefresh(info.path);
+        await scanAndRefresh();
       }
       return;
     }
 
     if (info.kind === "file" && info.inCurrentRoot) {
-      playByAbsolutePath(info.path);
+      await playByAbsolutePath(info.path);
       return;
     }
 
@@ -238,18 +271,50 @@ export default function App() {
       const root = info.foundDbRoot ?? info.suggestedRoot;
       await window.api.setLibraryRoot(root);
       setLibraryRoot(root);
-      await scanAndRefresh(root);
-      playByAbsolutePath(info.path);
+      await scanAndRefresh();
+      await playByAbsolutePath(info.path);
     }
   };
 
-  const playByAbsolutePath = (targetPath: string) => {
-    if (!items.length) return;
-    const match = items.find((item) => item.absolutePath === targetPath);
-    if (match) {
+  const playByAbsolutePath = async (targetPath: string) => {
+    const existing = itemsRef.current.find((item) => item.absolutePath === targetPath);
+    if (existing) {
       setExternalFile(null);
-      setCurrentId(match.id);
+      setCurrentId(existing.id);
+      return;
     }
+
+    setStatus("Loading playlist...");
+    let offset = itemsRef.current.length;
+    let total = totalCount;
+    if (offset === 0) {
+      const result = await loadPlaylistPage(0, true);
+      total = result.total;
+      const match = result.items.find((item) => item.absolutePath === targetPath);
+      if (match) {
+        setExternalFile(null);
+        setCurrentId(match.id);
+        setStatus(null);
+        return;
+      }
+      offset = result.items.length;
+    }
+
+    while (offset < total) {
+      const result = await loadPlaylistPage(offset, false);
+      const match = result.items.find((item) => item.absolutePath === targetPath);
+      if (match) {
+        setExternalFile(null);
+        setCurrentId(match.id);
+        setStatus(null);
+        return;
+      }
+      if (result.items.length === 0) break;
+      offset += result.items.length;
+      total = result.total;
+    }
+
+    setStatus(null);
   };
 
   const togglePlay = () => {
@@ -262,13 +327,24 @@ export default function App() {
     }
   };
 
-  const playNext = () => {
+  const playNext = async () => {
     if (!items.length || externalFile) return;
+    if (loadingRef.current) return;
     const index = items.findIndex((item) => item.id === currentId);
     if (index === -1) return;
     if (index < items.length - 1) {
       setCurrentId(items[index + 1].id);
-    } else if (loopPlaylist) {
+      return;
+    }
+    if (hasMore) {
+      const offset = itemsRef.current.length;
+      const result = await loadPlaylistPage(offset, false);
+      if (result.items.length > 0) {
+        setCurrentId(result.items[0].id);
+        return;
+      }
+    }
+    if (loopPlaylist) {
       setCurrentId(items[0].id);
     }
   };
@@ -284,7 +360,7 @@ export default function App() {
     if (index === -1) return;
     if (index > 0) {
       setCurrentId(items[index - 1].id);
-    } else if (loopPlaylist) {
+    } else if (loopPlaylist && !hasMore) {
       setCurrentId(items[items.length - 1].id);
     }
   };
@@ -331,13 +407,13 @@ export default function App() {
     if (!currentItem) return;
     await window.api.setRating(currentItem.id, value);
     setRatingMenuOpen(false);
-    if (libraryRoot) loadPlaylist(libraryRoot, options);
+    if (libraryRoot) loadPlaylistPage(0, true);
   };
 
   const handleTagToggle = async (tag: string) => {
     if (!currentItem) return;
     await window.api.toggleTag(currentItem.id, tag);
-    if (libraryRoot) loadPlaylist(libraryRoot, options);
+    if (libraryRoot) loadPlaylistPage(0, true);
   };
 
   const handleAddTag = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -348,7 +424,7 @@ export default function App() {
     if (!tag || !currentItem) return;
     await window.api.toggleTag(currentItem.id, tag);
     form.reset();
-    if (libraryRoot) loadPlaylist(libraryRoot, options);
+    if (libraryRoot) loadPlaylistPage(0, true);
     window.api.getTopTags().then((tags) => setTopTags(tags));
   };
 
@@ -362,8 +438,17 @@ export default function App() {
     });
   };
 
+  const handlePlaylistScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    if (loadingRef.current || !hasMore) return;
+    const target = event.currentTarget;
+    const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (remaining < 160) {
+      loadMore();
+    }
+  };
+
   const handleOrderMove = (from: number, to: number) => {
-    if (from === to || options.sort !== "playlist") return;
+    if (from === to || options.sort !== "playlist" || hasMore) return;
     const updated = [...items];
     const [moved] = updated.splice(from, 1);
     updated.splice(to, 0, moved);
@@ -425,20 +510,26 @@ export default function App() {
                   <button
                     className="rounded-2xl bg-ink-900 px-4 py-3 text-white shadow-soft transition hover:-translate-y-0.5"
                     onClick={playPrev}
+                    title="Previous"
+                    aria-label="Previous"
                   >
-                    ◀◀
+                    <PrevIcon />
                   </button>
                   <button
                     className="rounded-2xl bg-ocean px-4 py-3 text-white shadow-soft transition hover:-translate-y-0.5"
                     onClick={togglePlay}
+                    title={isPlaying ? "Pause" : "Play"}
+                    aria-label={isPlaying ? "Pause" : "Play"}
                   >
-                    {isPlaying ? "❚❚" : "▶"}
+                    {isPlaying ? <PauseIcon /> : <PlayIcon />}
                   </button>
                   <button
                     className="rounded-2xl bg-ink-900 px-4 py-3 text-white shadow-soft transition hover:-translate-y-0.5"
                     onClick={playNext}
+                    title="Next"
+                    aria-label="Next"
                   >
-                    ▶▶
+                    <NextIcon />
                   </button>
                 </div>
 
@@ -619,7 +710,9 @@ export default function App() {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-display text-ink-900 dark:text-white">Current Playlist</h2>
-                  <p className="text-xs text-ink-600 dark:text-slate-300">{items.length} videos</p>
+                  <p className="text-xs text-ink-600 dark:text-slate-300">
+                    {totalCount ? `${items.length} of ${totalCount} videos` : `${items.length} videos`}
+                  </p>
                 </div>
                 <button
                   className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
@@ -640,9 +733,13 @@ export default function App() {
                 <select
                   className="rounded-xl border border-mist bg-white px-3 py-2 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
                   value={options.sort}
-                  onChange={(event) =>
-                    setOptions((prev) => ({ ...prev, sort: event.target.value as SortMode }))
-                  }
+                  onChange={(event) => {
+                    const nextSort = event.target.value as SortMode;
+                    setOptions((prev) => ({ ...prev, sort: nextSort }));
+                    if (nextSort === "random") {
+                      setRandomSeed(Date.now());
+                    }
+                  }}
                 >
                   {Object.entries(SORT_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>
@@ -709,7 +806,11 @@ export default function App() {
                 </div>
               )}
 
-              <div className="mt-4 space-y-3 overflow-y-auto pr-1" style={{ maxHeight: "60vh" }}>
+              <div
+                className="mt-4 space-y-3 overflow-y-auto pr-1"
+                style={{ maxHeight: "60vh" }}
+                onScroll={handlePlaylistScroll}
+              >
                 {items.length === 0 && (
                   <div className="rounded-2xl border border-dashed border-mist p-4 text-sm text-ink-600 dark:border-white/10 dark:text-slate-300">
                     No videos found yet. Drop a folder or rescan to populate this playlist.
@@ -725,14 +826,15 @@ export default function App() {
                           ? "border-ocean bg-ocean/10"
                           : "border-transparent bg-white/70 hover:border-mist hover:bg-white dark:bg-white/5"
                       }`}
-                      draggable={options.sort === "playlist"}
+                      draggable={options.sort === "playlist" && !hasMore}
                       onDragStart={() => setDragIndex(index)}
                       onDragEnd={() => setDragIndex(null)}
                       onDragOver={(event) => {
-                        if (options.sort !== "playlist") return;
+                        if (options.sort !== "playlist" || hasMore) return;
                         event.preventDefault();
                       }}
                       onDrop={() => {
+                        if (hasMore) return;
                         if (dragIndex === null) return;
                         handleOrderMove(dragIndex, index);
                         setDragIndex(null);
@@ -776,6 +878,11 @@ export default function App() {
                     </div>
                   );
                 })}
+                {hasMore && (
+                  <div className="rounded-2xl border border-dashed border-mist p-3 text-center text-xs text-ink-500 dark:border-white/10 dark:text-slate-300">
+                    {isLoadingPage ? "Loading more..." : "Scroll to load more"}
+                  </div>
+                )}
               </div>
             </aside>
           )}
@@ -1018,6 +1125,41 @@ function MuteIcon() {
         strokeLinejoin="round"
       />
       <path d="M16 9l4 4m0-4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PrevIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M11 6 3.5 12 11 18V6Z" />
+      <path d="M20 6 12.5 12 20 18V6Z" />
+    </svg>
+  );
+}
+
+function NextIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M4 6 11.5 12 4 18V6Z" />
+      <path d="M13 6 20.5 12 13 18V6Z" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M6 4.5 19 12 6 19.5V4.5Z" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="6" y="5" width="4" height="14" rx="1" />
+      <rect x="14" y="5" width="4" height="14" rx="1" />
     </svg>
   );
 }

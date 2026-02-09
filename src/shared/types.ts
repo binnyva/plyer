@@ -6,6 +6,17 @@ export interface PlaylistOptions {
   tags: string[];
 }
 
+export interface PlaylistRequest extends PlaylistOptions {
+  limit?: number;
+  offset?: number;
+  seed?: number;
+}
+
+export interface PlaylistResponse {
+  items: FileItem[];
+  total: number;
+}
+
 export interface FileItem {
   id: number;
   path: string;

@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { FileItem, PendingOpenInfo, PlaylistOptions } from "@shared/types";
+import type { PendingOpenInfo, PlaylistRequest, PlaylistResponse } from "@shared/types";
 
 declare global {
   interface Window {
@@ -14,7 +14,7 @@ declare global {
       inspectPath: (path: string) => Promise<PendingOpenInfo | null>;
       setLibraryRoot: (root: string) => Promise<void>;
       scanLibrary: () => Promise<{ added: number; removed: number; updated: number }>;
-      getPlaylist: (options: PlaylistOptions) => Promise<FileItem[]>;
+      getPlaylist: (options: PlaylistRequest) => Promise<PlaylistResponse>;
       setRating: (fileId: number, rating: number) => Promise<void>;
       toggleTag: (fileId: number, tagName: string) => Promise<void>;
       addTag: (tagName: string) => Promise<void>;
@@ -24,7 +24,9 @@ declare global {
       setLastPlayed: (fileId: number) => Promise<void>;
       onPendingOpen: (cb: (info: PendingOpenInfo) => void) => () => void;
       onMediaControl: (cb: (action: "toggle" | "next" | "previous") => void) => () => void;
-      onThumbnailReady: (cb: () => void) => () => void;
+      onThumbnailReady: (
+        cb: (payload: { filePath: string; thumbPath: string; thumbnailUrl: string }) => void
+      ) => () => void;
       clearPendingOpen: () => Promise<void>;
       setPlaylistVisible: (visible: boolean) => Promise<void>;
       revealInFolder: (absolutePath: string) => Promise<void>;

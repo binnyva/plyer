@@ -13,6 +13,7 @@ interface ThumbJob {
 }
 
 const queue: ThumbJob[] = [];
+const pending = new Set<string>();
 let working = false;
 
 export function getThumbnailPath(root: string, relativePath: string) {
@@ -28,6 +29,10 @@ export function enqueueThumbnail(filePath: string, thumbPath: string) {
   if (fs.existsSync(thumbPath)) {
     return;
   }
+  if (pending.has(thumbPath)) {
+    return;
+  }
+  pending.add(thumbPath);
   queue.push({ filePath, thumbPath });
   processQueue();
 }
@@ -66,10 +71,12 @@ function processQueue() {
 
   const proc = spawn(ffmpegPath, args);
   proc.on("error", () => {
+    pending.delete(job.thumbPath);
     working = false;
     processQueue();
   });
   proc.on("exit", (code: number | null) => {
+    pending.delete(job.thumbPath);
     working = false;
     if (code === 0 && fs.existsSync(job.thumbPath)) {
       thumbnailEvents.emit("ready", job);

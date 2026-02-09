@@ -3,7 +3,7 @@ import path from "path";
 import { pathToFileURL } from "url";
 import { DB, DB_FILENAME, getLibraryPlaylistId, openDatabase } from "./db";
 import { enqueueThumbnail, getThumbnailPath } from "./thumbnail";
-import type { FileItem, PendingOpenInfo, PlaylistOptions, SortMode } from "../shared/types";
+import type { FileItem, PendingOpenInfo, PlaylistRequest, PlaylistResponse } from "../shared/types";
 
 const VIDEO_EXTENSIONS = new Set([".mov", ".avi", ".mp4", ".webm", ".mkv"]);
 
@@ -183,20 +183,38 @@ export class LibraryManager {
     return { added, removed: existing.length - seenIds.size, updated };
   }
 
-  getPlaylist(options: PlaylistOptions): FileItem[] {
+  getPlaylist(options: PlaylistRequest): PlaylistResponse {
     if (!this.root || !this.db) {
-      return [];
+      return { items: [], total: 0 };
     }
 
     const db = this.db;
     const playlistId = this.libraryPlaylistId;
 
-    const params: Array<number> = [playlistId];
-    let ratingFilter = "";
-    if (options.ratingMin > 0) {
-      ratingFilter = "AND f.rating >= ?";
-      params.push(options.ratingMin);
-    }
+    const { ratingFilter, ratingParams, havingClause, tagParams, orderBy, orderParams } =
+      buildPlaylistQueryParts(options);
+
+    const baseSql = `
+      FROM files f
+      LEFT JOIN file_playlists fp
+        ON fp.file_id = f.id AND fp.playlist_id = ?
+      LEFT JOIN file_tags ft
+        ON ft.file_id = f.id
+      LEFT JOIN tags t
+        ON t.id = ft.tag_id
+      WHERE f.is_missing = 0
+      ${ratingFilter}
+      GROUP BY f.id
+      ${havingClause}
+    `;
+
+    const totalRow = db
+      .prepare(`SELECT COUNT(*) as total FROM (SELECT f.id ${baseSql})`)
+      .get(playlistId, ...ratingParams, ...tagParams) as { total: number } | undefined;
+
+    const total = Number(totalRow?.total ?? 0);
+    const limit = options.limit && options.limit > 0 ? Math.trunc(options.limit) : null;
+    const offset = options.offset && options.offset > 0 ? Math.trunc(options.offset) : 0;
 
     const rows = db
       .prepare(
@@ -213,19 +231,12 @@ export class LibraryManager {
         f.created_ms,
         COALESCE(fp.order_index, 0) as order_index,
         GROUP_CONCAT(t.name, '||') as tags
-      FROM files f
-      LEFT JOIN file_playlists fp
-        ON fp.file_id = f.id AND fp.playlist_id = ?
-      LEFT JOIN file_tags ft
-        ON ft.file_id = f.id
-      LEFT JOIN tags t
-        ON t.id = ft.tag_id
-      WHERE f.is_missing = 0
-      ${ratingFilter}
-      GROUP BY f.id
+      ${baseSql}
+      ORDER BY ${orderBy}
+      ${limit ? "LIMIT ? OFFSET ?" : ""}
       `
       )
-      .all(...params) as Array<{
+      .all(playlistId, ...ratingParams, ...tagParams, ...orderParams, ...(limit ? [limit, offset] : [])) as Array<{
       id: number;
       path: string;
       name: string;
@@ -268,11 +279,7 @@ export class LibraryManager {
       } satisfies FileItem;
     });
 
-    const filtered = options.tags.length
-      ? items.filter((item) => options.tags.every((tag) => item.tags.includes(tag)))
-      : items;
-
-    return sortPlaylist(filtered, options.sort);
+    return { items, total };
   }
 
   setRating(fileId: number, rating: number) {
@@ -352,27 +359,42 @@ export class LibraryManager {
   }
 }
 
-function sortPlaylist(items: FileItem[], sort: SortMode) {
-  switch (sort) {
-    case "filename":
-      return [...items].sort((a, b) => a.name.localeCompare(b.name));
-    case "created":
-      return [...items].sort((a, b) => b.createdMs - a.createdMs);
-    case "random":
-      return shuffle(items);
-    case "playlist":
-    default:
-      return [...items].sort((a, b) => a.orderIndex - b.orderIndex);
+function buildPlaylistQueryParts(options: PlaylistRequest) {
+  const ratingParams: Array<number> = [];
+  let ratingFilter = "";
+  if (options.ratingMin > 0) {
+    ratingFilter = "AND f.rating >= ?";
+    ratingParams.push(options.ratingMin);
   }
+
+  const tags = options.tags ?? [];
+  let havingClause = "";
+  const tagParams: Array<string | number> = [];
+  if (tags.length > 0) {
+    const placeholders = tags.map(() => "?").join(", ");
+    havingClause = `HAVING COUNT(DISTINCT CASE WHEN t.name IN (${placeholders}) THEN t.name END) = ?`;
+    tagParams.push(...tags, tags.length);
+  }
+
+  const { orderBy, orderParams } = buildOrderBy(options);
+
+  return { ratingFilter, ratingParams, havingClause, tagParams, orderBy, orderParams };
 }
 
-function shuffle<T>(items: T[]) {
-  const result = [...items];
-  for (let i = result.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
+function buildOrderBy(options: PlaylistRequest): { orderBy: string; orderParams: number[] } {
+  switch (options.sort) {
+    case "filename":
+      return { orderBy: "f.name COLLATE NOCASE ASC, f.id ASC", orderParams: [] };
+    case "created":
+      return { orderBy: "f.created_ms DESC, f.id DESC", orderParams: [] };
+    case "random": {
+      const seed = Math.abs(Math.trunc(options.seed ?? 1)) || 1;
+      return { orderBy: "((f.id * ?) % 2147483647) ASC", orderParams: [seed] };
+    }
+    case "playlist":
+    default:
+      return { orderBy: "COALESCE(fp.order_index, 0) ASC, f.id ASC", orderParams: [] };
   }
-  return result;
 }
 
 interface ScannedFile {

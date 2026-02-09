@@ -5,7 +5,7 @@ import { pathToFileURL } from "url";
 import { LibraryManager, inspectPath, isVideoFile } from "./library";
 import { loadConfig, saveConfig } from "./config";
 import { thumbnailEvents } from "./thumbnail";
-import type { PendingOpenInfo, PlaylistOptions } from "../shared/types";
+import type { PendingOpenInfo, PlaylistRequest } from "../shared/types";
 
 const WINDOW_BASE_WIDTH = 1120;
 const WINDOW_BASE_HEIGHT = 760;
@@ -97,7 +97,6 @@ function resolveInitialTarget() {
     if (!fs.existsSync(resolved)) continue;
     try {
       const stat = fs.statSync(resolved);
-      if (stat.isDirectory()) return resolved;
       if (stat.isFile() && isVideoFile(resolved)) return resolved;
     } catch {
       // ignore
@@ -214,7 +213,7 @@ ipcMain.handle("library:scan", () => {
   return library.scanLibrary();
 });
 
-ipcMain.handle("playlist:get", (_event, options: PlaylistOptions) => {
+ipcMain.handle("playlist:get", (_event, options: PlaylistRequest) => {
   return library.getPlaylist(options);
 });
 
@@ -259,8 +258,10 @@ ipcMain.handle("file:reveal", (_event, absolutePath: string) => {
 
 thumbnailEvents.on("ready", (job: { filePath: string; thumbPath: string }) => {
   if (!mainWindow || !library.getRoot()) return;
+  const thumbnailUrl = pathToFileURL(job.thumbPath).toString().replace("file://", `${PLYER_SCHEME}://`);
   mainWindow.webContents.send("library:thumbnail-ready", {
     filePath: job.filePath,
-    thumbPath: job.thumbPath
+    thumbPath: job.thumbPath,
+    thumbnailUrl
   });
 });
