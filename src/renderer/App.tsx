@@ -560,7 +560,7 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="flex flex-1 items-center gap-3">
+                <div className="flex min-w-[260px] flex-1 items-center gap-3">
                   <span className="text-xs font-semibold text-ink-600 dark:text-slate-300">
                     {formatDuration(currentTime)}
                   </span>

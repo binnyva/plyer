@@ -113,7 +113,7 @@ function createWindow() {
 
   const target = resolveInitialTarget();
   if (target) {
-    setPendingOpen(target);
+    applyInitialTarget(target);
   }
 
   sendPendingOpen();
@@ -128,20 +128,55 @@ function updateWindowForPlaylist() {
   }
 }
 
-function resolveInitialTarget() {
-  const args = process.argv.slice(1);
+type CliTarget = { path: string; kind: "file" | "folder" };
+
+function resolveInitialTarget(): CliTarget | null {
+  const startIndex = process.defaultApp ? 2 : 1;
+  const args = process.argv.slice(startIndex);
   for (const arg of args) {
     if (!arg || arg.startsWith("-")) continue;
     const resolved = path.resolve(arg);
     if (!fs.existsSync(resolved)) continue;
     try {
       const stat = fs.statSync(resolved);
-      if (stat.isFile() && isVideoFile(resolved)) return resolved;
+      if (stat.isDirectory()) return { path: resolved, kind: "folder" };
+      if (stat.isFile()) return { path: resolved, kind: "file" };
     } catch {
       // ignore
     }
   }
   return null;
+}
+
+function setRootAndPersist(root: string) {
+  library.setRoot(root);
+  config.lastRoot = root;
+  saveConfig(config);
+}
+
+function applyInitialTarget(target: CliTarget) {
+  if (target.kind === "folder") {
+    setRootAndPersist(target.path);
+    return;
+  }
+
+  let root: string | null = null;
+  try {
+    const info = inspectPath(target.path, library.getRoot());
+    if (info.kind === "file") {
+      root = info.foundDbRoot ?? info.suggestedRoot;
+    }
+  } catch {
+    root = path.dirname(target.path);
+  }
+
+  if (root) {
+    setRootAndPersist(root);
+  }
+
+  if (isVideoFile(target.path)) {
+    setPendingOpen(target.path);
+  }
 }
 
 function setPendingOpen(targetPath: string) {
