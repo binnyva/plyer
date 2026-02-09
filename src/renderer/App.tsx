@@ -381,54 +381,24 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen px-6 py-5"
+      className="min-h-screen p-0"
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
     >
       <div className="mx-auto max-w-[1600px]">
-        <header className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600">Plyer</p>
-            <h1 className="text-2xl font-display text-ink-900 dark:text-white">Desktop Video Library</h1>
-            <p className="text-sm text-ink-600 dark:text-slate-300">
-              {libraryRoot ? `Library root: ${libraryRoot}` : "Choose a folder to start"}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              className="rounded-xl bg-ink-900 px-4 py-2 text-sm font-semibold text-white shadow-glow transition hover:-translate-y-0.5 hover:shadow-soft"
-              onClick={handleChooseRoot}
-            >
-              Choose Folder
-            </button>
-            <button
-              className="rounded-xl border border-mist bg-white/70 px-4 py-2 text-sm font-semibold text-ink-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-white"
-              onClick={() => libraryRoot && scanAndRefresh(libraryRoot)}
-              disabled={!libraryRoot}
-            >
-              Rescan
-            </button>
-            <button
-              className="rounded-xl border border-mist bg-white/70 px-4 py-2 text-sm font-semibold text-ink-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-white"
-              onClick={togglePlaylist}
-            >
-              {playlistVisible ? "Hide Playlist" : "Show Playlist"}
-            </button>
-          </div>
-        </header>
 
         <div
-          className={`mt-6 grid gap-6 ${
+          className={`mt-1 grid gap-3 ${
             playlistVisible ? "grid-cols-[minmax(0,1fr)_360px]" : "grid-cols-1"
           }`}
         >
-          <section className="space-y-4">
-            <div className="relative overflow-hidden rounded-3xl bg-slate-900 shadow-soft">
+          <section className="space-y-2">
+            <div className="relative overflow-hidden bg-slate-900 shadow-soft">
               <div className="video-frame relative aspect-video w-full">
                 <video
                   ref={videoRef}
-                  className="h-full w-full rounded-3xl object-contain"
+                  className="h-full w-full object-contain"
                   src={externalFile ? externalFile.url : currentItem?.fileUrl ?? ""}
                   onTimeUpdate={handleTimeUpdate}
                   onLoadedMetadata={handleLoadedMetadata}
@@ -446,15 +416,10 @@ export default function App() {
                     <p className="text-sm">Your playback starts here.</p>
                   </div>
                 )}
-                {activeName && (
-                  <div className="absolute left-6 top-6 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-white/80">
-                    Now Playing
-                  </div>
-                )}
               </div>
             </div>
 
-            <div className="rounded-3xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
+            <div className="rounded-xl border border-white/70 bg-white/80 p-3 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex items-center gap-3">
                   <button
@@ -497,10 +462,12 @@ export default function App() {
 
                 <div className="flex items-center gap-3">
                   <button
-                    className="rounded-xl border border-mist bg-white px-3 py-2 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
                     onClick={() => setMuted((prev) => !prev)}
+                    title={muted ? "Unmute" : "Mute"}
+                    aria-label={muted ? "Unmute" : "Mute"}
                   >
-                    {muted ? "Unmute" : "Mute"}
+                    {muted ? <MuteIcon /> : <VolumeIcon />}
                   </button>
                   <input
                     className="controls-range w-28"
@@ -513,19 +480,32 @@ export default function App() {
                   />
                 </div>
 
+                <div className="flex items-center gap-2">
+                  <button
+                    className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    onClick={handleChooseRoot}
+                    title="Open Folder"
+                    aria-label="Open Folder"
+                  >
+                    <FolderIcon />
+                  </button>
+                </div>
+
                 <div className="relative">
                   <button
-                    className="rounded-xl border border-mist bg-white px-3 py-2 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
                     onClick={() => {
                       setTagMenuOpen((prev) => !prev);
                       setRatingMenuOpen(false);
                     }}
                     disabled={!currentItem || !!externalFile}
+                    title="Tags"
+                    aria-label="Tags"
                   >
-                    Tag
+                    <TagIcon />
                   </button>
                   {tagMenuOpen && currentItem && (
-                    <div className="absolute right-0 z-20 mt-2 w-60 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900">
+                    <div className="absolute right-0 bottom-full z-20 mb-2 w-60 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900">
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
                         Tags
                       </p>
@@ -564,17 +544,19 @@ export default function App() {
 
                 <div className="relative">
                   <button
-                    className="rounded-xl border border-mist bg-white px-3 py-2 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
                     onClick={() => {
                       setRatingMenuOpen((prev) => !prev);
                       setTagMenuOpen(false);
                     }}
                     disabled={!currentItem || !!externalFile}
+                    title="Rating"
+                    aria-label="Rating"
                   >
-                    Rating
+                    <StarIcon />
                   </button>
                   {ratingMenuOpen && currentItem && (
-                    <div className="absolute right-0 z-20 mt-2 w-40 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900">
+                    <div className="absolute right-0 bottom-full z-20 mb-2 w-40 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900">
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
                         Rating
                       </p>
@@ -597,6 +579,21 @@ export default function App() {
                     </div>
                   )}
                 </div>
+
+                <div className="flex items-center">
+                  <button
+                    className={`rounded-xl border p-2 shadow-sm transition hover:-translate-y-0.5 ${
+                      playlistVisible
+                        ? "border-ocean bg-ocean/10 text-ocean"
+                        : "border-mist bg-white text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    }`}
+                    onClick={togglePlaylist}
+                    title="Toggle Playlist"
+                    aria-label="Toggle Playlist"
+                  >
+                    <PlaylistIcon />
+                  </button>
+                </div>
               </div>
 
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -604,20 +601,21 @@ export default function App() {
                   <p className="text-lg font-display text-ink-900 dark:text-white">
                     {externalFile?.name ?? currentItem?.name ?? ""}
                   </p>
-                  <p className="text-xs text-ink-600 dark:text-slate-300">
-                    {externalFile?.path ?? currentItem?.path ?? ""}
-                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold text-ink-600 dark:text-slate-300">Rating</span>
-                  <RatingStars rating={currentItem?.rating ?? 0} />
+                  <RatingStars
+                    rating={currentItem?.rating ?? 0}
+                    onSelect={(value) => handleRating(value)}
+                    disabled={!currentItem || !!externalFile}
+                  />
                 </div>
               </div>
             </div>
           </section>
 
           {playlistVisible && (
-            <aside className="rounded-3xl border border-white/70 bg-white/80 p-4 shadow-soft backdrop-blur dark:border-white/10 dark:bg-white/5">
+            <aside className="rounded-xl border border-white/70 bg-white/80 p-3 shadow-soft backdrop-blur dark:border-white/10 dark:bg-white/5">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-display text-ink-900 dark:text-white">Current Playlist</h2>
@@ -811,14 +809,41 @@ export default function App() {
   );
 }
 
-function RatingStars({ rating }: { rating: number }) {
+function RatingStars({
+  rating,
+  onSelect,
+  disabled
+}: {
+  rating: number;
+  onSelect?: (value: number) => void;
+  disabled?: boolean;
+}) {
   return (
     <div className="flex items-center gap-1 text-[10px]">
-      {Array.from({ length: 5 }).map((_, index) => (
-        <span key={index} className={index < rating ? "text-coral" : "text-ink-400 dark:text-slate-500"}>
-          ★
-        </span>
-      ))}
+      {Array.from({ length: 5 }).map((_, index) => {
+        const active = index < rating;
+        if (onSelect) {
+          return (
+            <button
+              key={index}
+              type="button"
+              className={`transition ${active ? "text-coral" : "text-ink-400 dark:text-slate-500"} ${
+                disabled ? "cursor-not-allowed opacity-50" : "hover:scale-110"
+              }`}
+              onClick={() => !disabled && onSelect(index + 1)}
+              aria-label={`Set rating ${index + 1}`}
+              disabled={disabled}
+            >
+              ★
+            </button>
+          );
+        }
+        return (
+          <span key={index} className={active ? "text-coral" : "text-ink-400 dark:text-slate-500"}>
+            ★
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -906,4 +931,93 @@ function formatDuration(seconds: number) {
 function fileName(filePath: string) {
   const parts = filePath.split(/[\\/]/);
   return parts[parts.length - 1] ?? filePath;
+}
+
+function FolderIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M3 7.5a2 2 0 0 1 2-2h4.2a2 2 0 0 1 1.4.6l1.2 1.2a2 2 0 0 0 1.4.6H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M3 9h18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PlaylistIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 7h12M4 12h12M4 17h12"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="M19 9.5v5l2.5-2.5L19 9.5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function TagIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M3 12.5V6a2 2 0 0 1 2-2h6.5a2 2 0 0 1 1.4.6l7.5 7.5a2 2 0 0 1 0 2.8l-5.1 5.1a2 2 0 0 1-2.8 0l-7.5-7.5a2 2 0 0 1-.6-1.4Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function StarIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 4.5l2.7 5.5 6.1.9-4.4 4.3 1 6.1L12 18.6l-5.4 2.7 1-6.1-4.4-4.3 6.1-.9L12 4.5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function VolumeIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 9v6h4l5 4V5L8 9H4Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M16 9.5c1.2 1.2 1.2 3.8 0 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M18.5 7c2.2 2.2 2.2 7.8 0 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MuteIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 9v6h4l5 4V5L8 9H4Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path d="M16 9l4 4m0-4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
 }

@@ -36,9 +36,9 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width,
     height: WINDOW_BASE_HEIGHT,
-    minWidth: WINDOW_BASE_WIDTH,
-    minHeight: 640,
-    titleBarStyle: "hiddenInset",
+    minWidth: 360,
+    minHeight: 240,
+    titleBarStyle: "default",
     backgroundColor: "#0f172a",
     webPreferences: {
       contextIsolation: true,

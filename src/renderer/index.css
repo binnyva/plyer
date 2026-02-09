@@ -12,6 +12,7 @@ body {
     radial-gradient(1000px circle at 90% 20%, rgba(251, 113, 133, 0.12), transparent 55%),
     #f8fafc;
   min-height: 100vh;
+  margin: 0;
 }
 
 .dark body {
@@ -35,4 +36,12 @@ body {
 
 .controls-range {
   accent-color: #2563eb;
+}
+
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
 }
