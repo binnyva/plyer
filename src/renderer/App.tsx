@@ -46,6 +46,10 @@ export default function App() {
   const [topTags, setTopTags] = useState<string[]>([]);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const tagMenuRef = useRef<HTMLDivElement>(null);
+  const ratingMenuRef = useRef<HTMLDivElement>(null);
+  const tagButtonRef = useRef<HTMLButtonElement>(null);
+  const ratingButtonRef = useRef<HTMLButtonElement>(null);
 
   const currentItem = useMemo(() => items.find((item) => item.id === currentId) ?? null, [items, currentId]);
 
@@ -164,6 +168,28 @@ export default function App() {
     if (!tagMenuOpen && !filterMenuOpen) return;
     window.api.getTopTags().then((tags) => setTopTags(tags));
   }, [tagMenuOpen, filterMenuOpen]);
+
+  useEffect(() => {
+    if (!tagMenuOpen && !ratingMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      const clickedTagMenu = tagMenuRef.current?.contains(target) ?? false;
+      const clickedRatingMenu = ratingMenuRef.current?.contains(target) ?? false;
+      const clickedTagButton = tagButtonRef.current?.contains(target) ?? false;
+      const clickedRatingButton = ratingButtonRef.current?.contains(target) ?? false;
+
+      if (tagMenuOpen && !clickedTagMenu && !clickedTagButton) {
+        setTagMenuOpen(false);
+      }
+      if (ratingMenuOpen && !clickedRatingMenu && !clickedRatingButton) {
+        setRatingMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [tagMenuOpen, ratingMenuOpen]);
 
   const buildPlaylistRequest = (offset: number) => ({
     ...options,
@@ -584,6 +610,7 @@ export default function App() {
 
                 <div className="relative">
                   <button
+                    ref={tagButtonRef}
                     className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
                     onClick={() => {
                       setTagMenuOpen((prev) => !prev);
@@ -596,7 +623,10 @@ export default function App() {
                     <TagIcon />
                   </button>
                   {tagMenuOpen && currentItem && (
-                    <div className="absolute right-0 bottom-full z-20 mb-2 w-60 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900">
+                    <div
+                      ref={tagMenuRef}
+                      className="absolute right-0 bottom-full z-20 mb-2 w-60 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900"
+                    >
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
                         Tags
                       </p>
@@ -635,6 +665,7 @@ export default function App() {
 
                 <div className="relative">
                   <button
+                    ref={ratingButtonRef}
                     className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
                     onClick={() => {
                       setRatingMenuOpen((prev) => !prev);
@@ -647,7 +678,10 @@ export default function App() {
                     <StarIcon />
                   </button>
                   {ratingMenuOpen && currentItem && (
-                    <div className="absolute right-0 bottom-full z-20 mb-2 w-40 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900">
+                    <div
+                      ref={ratingMenuRef}
+                      className="absolute right-0 bottom-full z-20 mb-2 w-40 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900"
+                    >
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
                         Rating
                       </p>
