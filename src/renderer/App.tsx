@@ -707,26 +707,7 @@ export default function App() {
 
           {playlistVisible && (
             <aside className="flex h-full min-h-0 flex-col rounded-xl border border-white/70 bg-white/80 p-3 shadow-soft backdrop-blur dark:border-white/10 dark:bg-white/5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-display text-ink-900 dark:text-white">Current Playlist</h2>
-                  <p className="text-xs text-ink-600 dark:text-slate-300">
-                    {totalCount ? `${items.length} of ${totalCount} videos` : `${items.length} videos`}
-                  </p>
-                </div>
-                <button
-                  className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                    loopPlaylist
-                      ? "bg-ocean text-white"
-                      : "border border-mist bg-white text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
-                  }`}
-                  onClick={() => setLoopPlaylist((prev) => !prev)}
-                >
-                  Loop
-                </button>
-              </div>
-
-              <div className="mt-4 flex flex-wrap items-center gap-2">
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 <label className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
                   Sort
                 </label>
@@ -753,6 +734,16 @@ export default function App() {
                   onClick={() => setFilterMenuOpen((prev) => !prev)}
                 >
                   Filters
+                </button>
+                <button
+                  className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                    loopPlaylist
+                      ? "bg-ocean text-white"
+                      : "border border-mist bg-white text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  }`}
+                  onClick={() => setLoopPlaylist((prev) => !prev)}
+                >
+                  Loop
                 </button>
               </div>
 
@@ -853,7 +844,6 @@ export default function App() {
                         <div className="flex items-start justify-between">
                           <div>
                             <p className="text-sm font-semibold text-ink-900 dark:text-white">{item.name}</p>
-                            <p className="text-xs text-ink-500 dark:text-slate-300">{item.path}</p>
                           </div>
                           <span className="text-xs text-ink-500 dark:text-slate-400">
                             {formatDuration(item.durationMs / 1000)}
