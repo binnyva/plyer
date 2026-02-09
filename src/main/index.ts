@@ -1,7 +1,8 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, shell } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, protocol, shell } from "electron";
 import path from "path";
 import fs from "fs";
 import { pathToFileURL } from "url";
+import { Readable } from "stream";
 import { LibraryManager, inspectPath, isVideoFile } from "./library";
 import { loadConfig, saveConfig } from "./config";
 import { thumbnailEvents } from "./thumbnail";
@@ -11,6 +12,18 @@ const WINDOW_BASE_WIDTH = 1120;
 const WINDOW_BASE_HEIGHT = 760;
 const PLAYLIST_WIDTH = 360;
 const PLYER_SCHEME = "plyer";
+const MIME_BY_EXT: Record<string, string> = {
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mkv": "video/x-matroska",
+  ".mov": "video/quicktime",
+  ".avi": "video/x-msvideo",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".gif": "image/gif",
+  ".webp": "image/webp"
+};
 
 let mainWindow: BrowserWindow | null = null;
 let pendingOpen: PendingOpenInfo | null = null;
@@ -30,6 +43,32 @@ protocol.registerSchemesAsPrivileged([
     }
   }
 ]);
+
+function getMimeType(filePath: string) {
+  return MIME_BY_EXT[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
+}
+
+function getHeaderValue(
+  headers: Headers | Record<string, string | string[] | undefined> | undefined,
+  headerName: string
+) {
+  if (!headers) return undefined;
+  if (typeof (headers as Headers).get === "function") {
+    const value = (headers as Headers).get(headerName);
+    return value ?? undefined;
+  }
+  const target = headerName.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() !== target) continue;
+    if (Array.isArray(value)) return value.join(", ");
+    return value;
+  }
+  return undefined;
+}
+
+function toWebStream(stream: fs.ReadStream) {
+  return Readable.toWeb(stream) as any;
+}
 
 function createWindow() {
   const width = playlistVisible ? WINDOW_BASE_WIDTH + PLAYLIST_WIDTH : WINDOW_BASE_WIDTH;
@@ -138,7 +177,7 @@ app.on("open-file", (event, filePath) => {
 });
 
 app.whenReady().then(() => {
-  protocol.handle(PLYER_SCHEME, (request) => {
+  protocol.handle(PLYER_SCHEME, async (request) => {
     const url = new URL(request.url);
     let filePath = decodeURIComponent(url.pathname);
     if (url.hostname) {
@@ -147,7 +186,66 @@ app.whenReady().then(() => {
     if (process.platform === "win32" && filePath.startsWith("/")) {
       filePath = filePath.slice(1);
     }
-    return net.fetch(pathToFileURL(filePath).toString());
+
+    try {
+      const stat = await fs.promises.stat(filePath);
+      if (!stat.isFile()) {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const size = stat.size;
+      const mimeType = getMimeType(filePath);
+      const range = getHeaderValue(request.headers, "range");
+      if (range) {
+        const match = /bytes=(\d*)-(\d*)/.exec(range);
+        if (match) {
+          let start = match[1] ? Number.parseInt(match[1], 10) : undefined;
+          let end = match[2] ? Number.parseInt(match[2], 10) : undefined;
+
+          if (Number.isNaN(start)) start = undefined;
+          if (Number.isNaN(end)) end = undefined;
+
+          if (start === undefined && end !== undefined) {
+            start = Math.max(size - end, 0);
+            end = size - 1;
+          } else {
+            if (start === undefined) start = 0;
+            if (end === undefined || end >= size) end = size - 1;
+          }
+
+          if (start >= size || end < start) {
+            return new Response(null, {
+              status: 416,
+              headers: { "Content-Range": `bytes */${size}` }
+            });
+          }
+
+          const stream = fs.createReadStream(filePath, { start, end });
+          const chunkSize = end - start + 1;
+          return new Response(toWebStream(stream), {
+            status: 206,
+            headers: {
+              "Content-Range": `bytes ${start}-${end}/${size}`,
+              "Accept-Ranges": "bytes",
+              "Content-Length": String(chunkSize),
+              "Content-Type": mimeType
+            }
+          });
+        }
+      }
+
+      const stream = fs.createReadStream(filePath);
+      return new Response(toWebStream(stream), {
+        status: 200,
+        headers: {
+          "Accept-Ranges": "bytes",
+          "Content-Length": String(size),
+          "Content-Type": mimeType
+        }
+      });
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
   });
   createWindow();
   registerMediaShortcuts();
