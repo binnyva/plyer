@@ -43,6 +43,7 @@ export default function App() {
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
   const [ratingMenuOpen, setRatingMenuOpen] = useState(false);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const [detailsVisible, setDetailsVisible] = useState(true);
   const [topTags, setTopTags] = useState<string[]>([]);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -600,11 +601,12 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <button
                     className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white dark:border-white/10 dark:bg-white/10 dark:text-white"
-                    onClick={handleChooseRoot}
-                    title="Open Folder"
-                    aria-label="Open Folder"
+                    onClick={() => setDetailsVisible((prev) => !prev)}
+                    title={detailsVisible ? "Hide Details" : "Show Details"}
+                    aria-label={detailsVisible ? "Hide Details" : "Show Details"}
+                    aria-pressed={detailsVisible}
                   >
-                    <FolderIcon />
+                    {detailsVisible ? <ChevronUpIcon /> : <ChevronDownIcon />}
                   </button>
                 </div>
 
@@ -721,21 +723,33 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-lg font-display text-ink-900 dark:text-white">
-                    {externalFile?.name ?? currentItem?.name ?? ""}
-                  </p>
+              {detailsVisible && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-lg font-display text-ink-900 dark:text-white">
+                      {externalFile?.name ?? currentItem?.name ?? ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white dark:border-white/10 dark:bg-white/10 dark:text-white"
+                      onClick={handleChooseRoot}
+                      title="Open Folder"
+                      aria-label="Open Folder"
+                    >
+                      <FolderIcon />
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-ink-600 dark:text-slate-300">Rating</span>
+                      <RatingStars
+                        rating={currentItem?.rating ?? 0}
+                        onSelect={(value) => handleRating(value)}
+                        disabled={!currentItem || !!externalFile}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-ink-600 dark:text-slate-300">Rating</span>
-                  <RatingStars
-                    rating={currentItem?.rating ?? 0}
-                    onSelect={(value) => handleRating(value)}
-                    disabled={!currentItem || !!externalFile}
-                  />
-                </div>
-              </div>
+              )}
             </div>
           </section>
 
@@ -1089,6 +1103,22 @@ function PlaylistIcon() {
         strokeWidth="1.5"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ChevronUpIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 15l6-6 6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
