@@ -505,8 +505,8 @@ export default function App() {
           }`}
         >
           <section className="flex h-full min-h-0 flex-col space-y-2">
-            <div className="relative overflow-hidden bg-slate-900 shadow-soft">
-              <div className="video-frame relative aspect-video w-full">
+            <div className="video-frame relative flex min-h-0 flex-1 overflow-hidden bg-slate-900 shadow-soft">
+              <div className="relative flex h-full w-full items-center justify-center">
                 <video
                   ref={videoRef}
                   className="h-full w-full object-contain"
