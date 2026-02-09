@@ -466,19 +466,19 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen p-0"
+      className="h-screen overflow-hidden p-0"
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
     >
-      <div className="mx-auto max-w-[1600px]">
+      <div className="mx-auto h-full max-w-[1600px] pt-1">
 
         <div
-          className={`mt-1 grid gap-3 ${
+          className={`grid h-full min-h-0 grid-rows-1 gap-3 ${
             playlistVisible ? "grid-cols-[minmax(0,1fr)_360px]" : "grid-cols-1"
           }`}
         >
-          <section className="space-y-2">
+          <section className="flex h-full min-h-0 flex-col space-y-2">
             <div className="relative overflow-hidden bg-slate-900 shadow-soft">
               <div className="video-frame relative aspect-video w-full">
                 <video
@@ -706,7 +706,7 @@ export default function App() {
           </section>
 
           {playlistVisible && (
-            <aside className="rounded-xl border border-white/70 bg-white/80 p-3 shadow-soft backdrop-blur dark:border-white/10 dark:bg-white/5">
+            <aside className="flex h-full min-h-0 flex-col rounded-xl border border-white/70 bg-white/80 p-3 shadow-soft backdrop-blur dark:border-white/10 dark:bg-white/5">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-display text-ink-900 dark:text-white">Current Playlist</h2>
@@ -806,11 +806,7 @@ export default function App() {
                 </div>
               )}
 
-              <div
-                className="mt-4 space-y-3 overflow-y-auto pr-1"
-                style={{ maxHeight: "60vh" }}
-                onScroll={handlePlaylistScroll}
-              >
+              <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1" onScroll={handlePlaylistScroll}>
                 {items.length === 0 && (
                   <div className="rounded-2xl border border-dashed border-mist p-4 text-sm text-ink-600 dark:border-white/10 dark:text-slate-300">
                     No videos found yet. Drop a folder or rescan to populate this playlist.
