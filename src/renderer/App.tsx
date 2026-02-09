@@ -891,11 +891,10 @@ export default function App() {
                       <div className="flex-1">
                         <div className="flex items-start justify-between">
                           <div>
-                            <p className="text-sm font-semibold text-ink-900 dark:text-white">{item.name}</p>
+                            <p className="line-clamp-2 text-sm font-semibold text-ink-900 dark:text-white">
+                              {item.name}
+                            </p>
                           </div>
-                          <span className="text-xs text-ink-500 dark:text-slate-400">
-                            {formatDuration(item.durationMs / 1000)}
-                          </span>
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-2">
                           {item.tags.slice(0, 3).map((tag) => (
@@ -907,6 +906,9 @@ export default function App() {
                             </span>
                           ))}
                           <RatingStars rating={item.rating} />
+                          <span className="text-xs text-ink-500 dark:text-slate-400">
+                            {formatDuration(item.durationMs / 1000)}
+                          </span>
                         </div>
                       </div>
                     </div>
