@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, protocol, shell } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, protocol, shell, Menu } from "electron";
 import path from "path";
 import fs from "fs";
 import { pathToFileURL } from "url";
@@ -78,6 +78,7 @@ function createWindow() {
     minWidth: 360,
     minHeight: 240,
     titleBarStyle: "default",
+    autoHideMenuBar: true,
     backgroundColor: "#0f172a",
     webPreferences: {
       contextIsolation: true,
@@ -85,6 +86,11 @@ function createWindow() {
       preload: path.join(__dirname, "../../preload/preload/index.js")
     }
   });
+
+  if (process.platform !== "darwin") {
+    mainWindow.setMenu(null);
+    Menu.setApplicationMenu(null);
+  }
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {

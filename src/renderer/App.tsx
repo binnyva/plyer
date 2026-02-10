@@ -51,6 +51,7 @@ export default function App() {
   const ratingMenuRef = useRef<HTMLDivElement>(null);
   const tagButtonRef = useRef<HTMLButtonElement>(null);
   const ratingButtonRef = useRef<HTMLButtonElement>(null);
+  const tagInputRef = useRef<HTMLInputElement>(null);
 
   const currentItem = useMemo(() => items.find((item) => item.id === currentId) ?? null, [items, currentId]);
 
@@ -169,6 +170,11 @@ export default function App() {
     if (!tagMenuOpen && !filterMenuOpen) return;
     window.api.getTopTags().then((tags) => setTopTags(tags));
   }, [tagMenuOpen, filterMenuOpen]);
+
+  useEffect(() => {
+    if (!tagMenuOpen) return;
+    requestAnimationFrame(() => tagInputRef.current?.focus());
+  }, [tagMenuOpen]);
 
   useEffect(() => {
     if (!tagMenuOpen && !ratingMenuOpen) return;
@@ -450,6 +456,7 @@ export default function App() {
     const tag = String(formData.get("tag") ?? "").trim();
     if (!tag || !currentItem) return;
     await window.api.toggleTag(currentItem.id, tag);
+    setTagMenuOpen(false);
     form.reset();
     if (libraryRoot) loadPlaylistPage(0, true);
     window.api.getTopTags().then((tags) => setTopTags(tags));
@@ -632,7 +639,7 @@ export default function App() {
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
                         Tags
                       </p>
-                      <div className="mt-2 space-y-2">
+                      <div className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1">
                         {topTags.map((tag) => {
                           const active = currentItem.tags.includes(tag);
                           return (
@@ -656,6 +663,7 @@ export default function App() {
                           className="w-full rounded-xl border border-mist bg-white px-2 py-1 text-xs text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
                           name="tag"
                           placeholder="Add tag"
+                          ref={tagInputRef}
                         />
                         <button className="rounded-xl bg-ink-900 px-3 py-1 text-xs font-semibold text-white">
                           Add
