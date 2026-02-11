@@ -539,7 +539,7 @@ export default function App() {
             </div>
 
             <div className="rounded-xl border border-white/70 bg-white/80 p-3 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
-              <div className="flex flex-wrap items-center gap-4">
+              <div className="flex flex-nowrap items-center gap-4">
                 <div className="flex items-center gap-3">
                   <button
                     className="rounded-2xl bg-ink-900 px-4 py-3 text-white shadow-soft transition hover:-translate-y-0.5"
@@ -585,7 +585,107 @@ export default function App() {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="relative max-[480px]:hidden">
+                    <button
+                      ref={tagButtonRef}
+                      className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                      onClick={() => {
+                        setTagMenuOpen((prev) => !prev);
+                        setRatingMenuOpen(false);
+                      }}
+                      disabled={!currentItem || !!externalFile}
+                      title="Tags"
+                      aria-label="Tags"
+                    >
+                      <TagIcon />
+                    </button>
+                    {tagMenuOpen && currentItem && (
+                      <div
+                        ref={tagMenuRef}
+                        className="absolute right-0 bottom-full z-20 mb-2 w-60 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900"
+                      >
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
+                          Tags
+                        </p>
+                        <div className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1">
+                          {topTags.map((tag) => {
+                            const active = currentItem.tags.includes(tag);
+                            return (
+                              <button
+                                key={tag}
+                                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
+                                  active
+                                    ? "bg-ocean/10 text-ocean"
+                                    : "bg-slatewash text-ink-700 dark:bg-white/5 dark:text-white"
+                                }`}
+                                onClick={() => handleTagToggle(tag)}
+                              >
+                                <span>{tag}</span>
+                                <span>{active ? "✓" : ""}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <form className="mt-3 flex gap-2" onSubmit={handleAddTag}>
+                          <input
+                            className="w-full rounded-xl border border-mist bg-white px-2 py-1 text-xs text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                            name="tag"
+                            placeholder="Add tag"
+                            ref={tagInputRef}
+                          />
+                          <button className="rounded-xl bg-ink-900 px-3 py-1 text-xs font-semibold text-white">
+                            Add
+                          </button>
+                        </form>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="relative max-[520px]:hidden">
+                    <button
+                      ref={ratingButtonRef}
+                      className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                      onClick={() => {
+                        setRatingMenuOpen((prev) => !prev);
+                        setTagMenuOpen(false);
+                      }}
+                      disabled={!currentItem || !!externalFile}
+                      title="Rating"
+                      aria-label="Rating"
+                    >
+                      <StarIcon />
+                    </button>
+                    {ratingMenuOpen && currentItem && (
+                      <div
+                        ref={ratingMenuRef}
+                        className="absolute right-0 bottom-full z-20 mb-2 w-40 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900"
+                      >
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
+                          Rating
+                        </p>
+                        <div className="mt-2 space-y-2">
+                          {RATING_OPTIONS.map((rating) => (
+                            <button
+                              key={rating}
+                              className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
+                                currentItem.rating === rating
+                                  ? "bg-coral/10 text-coral"
+                                  : "bg-slatewash text-ink-700 dark:bg-white/5 dark:text-white"
+                              }`}
+                              onClick={() => handleRating(rating)}
+                            >
+                              <span>{rating === 0 ? "No rating" : `${rating} stars`}</span>
+                              <span>{currentItem.rating === rating ? "✓" : ""}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 max-[680px]:hidden">
                   <button
                     className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
                     onClick={() => setMuted((prev) => !prev)}
@@ -605,7 +705,7 @@ export default function App() {
                   />
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 max-[720px]:hidden">
                   <button
                     className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white dark:border-white/10 dark:bg-white/10 dark:text-white"
                     onClick={() => setDetailsVisible((prev) => !prev)}
@@ -617,105 +717,7 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="relative">
-                  <button
-                    ref={tagButtonRef}
-                    className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
-                    onClick={() => {
-                      setTagMenuOpen((prev) => !prev);
-                      setRatingMenuOpen(false);
-                    }}
-                    disabled={!currentItem || !!externalFile}
-                    title="Tags"
-                    aria-label="Tags"
-                  >
-                    <TagIcon />
-                  </button>
-                  {tagMenuOpen && currentItem && (
-                    <div
-                      ref={tagMenuRef}
-                      className="absolute right-0 bottom-full z-20 mb-2 w-60 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900"
-                    >
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
-                        Tags
-                      </p>
-                      <div className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1">
-                        {topTags.map((tag) => {
-                          const active = currentItem.tags.includes(tag);
-                          return (
-                            <button
-                              key={tag}
-                              className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
-                                active
-                                  ? "bg-ocean/10 text-ocean"
-                                  : "bg-slatewash text-ink-700 dark:bg-white/5 dark:text-white"
-                              }`}
-                              onClick={() => handleTagToggle(tag)}
-                            >
-                              <span>{tag}</span>
-                              <span>{active ? "✓" : ""}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <form className="mt-3 flex gap-2" onSubmit={handleAddTag}>
-                        <input
-                          className="w-full rounded-xl border border-mist bg-white px-2 py-1 text-xs text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
-                          name="tag"
-                          placeholder="Add tag"
-                          ref={tagInputRef}
-                        />
-                        <button className="rounded-xl bg-ink-900 px-3 py-1 text-xs font-semibold text-white">
-                          Add
-                        </button>
-                      </form>
-                    </div>
-                  )}
-                </div>
-
-                <div className="relative">
-                  <button
-                    ref={ratingButtonRef}
-                    className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
-                    onClick={() => {
-                      setRatingMenuOpen((prev) => !prev);
-                      setTagMenuOpen(false);
-                    }}
-                    disabled={!currentItem || !!externalFile}
-                    title="Rating"
-                    aria-label="Rating"
-                  >
-                    <StarIcon />
-                  </button>
-                  {ratingMenuOpen && currentItem && (
-                    <div
-                      ref={ratingMenuRef}
-                      className="absolute right-0 bottom-full z-20 mb-2 w-40 rounded-2xl border border-mist bg-white p-3 shadow-soft dark:border-white/10 dark:bg-slate-900"
-                    >
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
-                        Rating
-                      </p>
-                      <div className="mt-2 space-y-2">
-                        {RATING_OPTIONS.map((rating) => (
-                          <button
-                            key={rating}
-                            className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
-                              currentItem.rating === rating
-                                ? "bg-coral/10 text-coral"
-                                : "bg-slatewash text-ink-700 dark:bg-white/5 dark:text-white"
-                            }`}
-                            onClick={() => handleRating(rating)}
-                          >
-                            <span>{rating === 0 ? "No rating" : `${rating} stars`}</span>
-                            <span>{currentItem.rating === rating ? "✓" : ""}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex items-center">
+                <div className="flex items-center max-[760px]:hidden">
                   <button
                     className={`rounded-xl border p-2 shadow-sm transition hover:-translate-y-0.5 ${
                       playlistVisible
