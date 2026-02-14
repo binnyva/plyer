@@ -54,6 +54,7 @@ export default function App() {
   const tagInputRef = useRef<HTMLInputElement>(null);
 
   const currentItem = useMemo(() => items.find((item) => item.id === currentId) ?? null, [items, currentId]);
+  const isRated = (currentItem?.rating ?? 0) > 0;
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -497,6 +498,7 @@ export default function App() {
   };
 
   const activeName = externalFile?.name ?? currentItem?.name ?? "";
+  const isTagged = !!currentItem && !externalFile && currentItem.tags.length > 0;
 
   return (
     <div
@@ -589,7 +591,11 @@ export default function App() {
                   <div className="relative max-[480px]:hidden">
                     <button
                       ref={tagButtonRef}
-                      className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                      className={`rounded-xl border p-2 shadow-sm transition hover:-translate-y-0.5 ${
+                        isTagged
+                          ? "border-ocean bg-ocean/10 text-ocean"
+                          : "border-mist bg-white text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                      }`}
                       onClick={() => {
                         setTagMenuOpen((prev) => !prev);
                         setRatingMenuOpen(false);
@@ -645,7 +651,11 @@ export default function App() {
                   <div className="relative max-[520px]:hidden">
                     <button
                       ref={ratingButtonRef}
-                      className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                      className={`rounded-xl border p-2 shadow-sm transition hover:-translate-y-0.5 ${
+                        isRated
+                          ? "border-ocean bg-ocean/10 text-ocean"
+                          : "border-mist bg-white text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                      }`}
                       onClick={() => {
                         setRatingMenuOpen((prev) => !prev);
                         setTagMenuOpen(false);
@@ -654,7 +664,7 @@ export default function App() {
                       title="Rating"
                       aria-label="Rating"
                     >
-                      <StarIcon />
+                      <StarIcon filled={isRated} />
                     </button>
                     {ratingMenuOpen && currentItem && (
                       <div
@@ -1149,7 +1159,7 @@ function TagIcon() {
   );
 }
 
-function StarIcon() {
+function StarIcon({ filled = false }: { filled?: boolean }) {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
@@ -1157,6 +1167,7 @@ function StarIcon() {
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinejoin="round"
+        fill={filled ? "currentColor" : "none"}
       />
     </svg>
   );
