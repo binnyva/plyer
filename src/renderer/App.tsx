@@ -45,6 +45,8 @@ export default function App() {
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [detailsVisible, setDetailsVisible] = useState(true);
   const [topTags, setTopTags] = useState<string[]>([]);
+  const [tagDraft, setTagDraft] = useState("");
+  const [tagFilterQuery, setTagFilterQuery] = useState("");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const tagMenuRef = useRef<HTMLDivElement>(null);
@@ -55,6 +57,16 @@ export default function App() {
 
   const currentItem = useMemo(() => items.find((item) => item.id === currentId) ?? null, [items, currentId]);
   const isRated = (currentItem?.rating ?? 0) > 0;
+  const filteredPlayerTags = useMemo(() => {
+    const query = tagDraft.trim().toLowerCase();
+    if (!query) return topTags;
+    return topTags.filter((tag) => tag.toLowerCase().includes(query));
+  }, [topTags, tagDraft]);
+  const filteredTags = useMemo(() => {
+    const query = tagFilterQuery.trim().toLowerCase();
+    if (!query) return topTags;
+    return topTags.filter((tag) => tag.toLowerCase().includes(query));
+  }, [topTags, tagFilterQuery]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -178,6 +190,18 @@ export default function App() {
   }, [tagMenuOpen]);
 
   useEffect(() => {
+    if (!tagMenuOpen) {
+      setTagDraft("");
+    }
+  }, [tagMenuOpen]);
+
+  useEffect(() => {
+    if (!filterMenuOpen) {
+      setTagFilterQuery("");
+    }
+  }, [filterMenuOpen]);
+
+  useEffect(() => {
     if (!tagMenuOpen && !ratingMenuOpen) return;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
@@ -197,6 +221,22 @@ export default function App() {
 
     window.addEventListener("pointerdown", handlePointerDown);
     return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [tagMenuOpen, ratingMenuOpen]);
+
+  useEffect(() => {
+    if (!tagMenuOpen && !ratingMenuOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (tagMenuOpen) {
+        setTagMenuOpen(false);
+      }
+      if (ratingMenuOpen) {
+        setRatingMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [tagMenuOpen, ratingMenuOpen]);
 
   const buildPlaylistRequest = (offset: number) => ({
@@ -452,13 +492,11 @@ export default function App() {
 
   const handleAddTag = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-    const tag = String(formData.get("tag") ?? "").trim();
+    const tag = tagDraft.trim();
     if (!tag || !currentItem) return;
     await window.api.toggleTag(currentItem.id, tag);
     setTagMenuOpen(false);
-    form.reset();
+    setTagDraft("");
     if (libraryRoot) loadPlaylistPage(0, true);
     window.api.getTopTags().then((tags) => setTopTags(tags));
   };
@@ -615,7 +653,17 @@ export default function App() {
                           Tags
                         </p>
                         <div className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1">
-                          {topTags.map((tag) => {
+                          {topTags.length === 0 && (
+                            <span className="block rounded-xl bg-slatewash px-3 py-2 text-xs text-ink-500 dark:bg-white/5 dark:text-slate-400">
+                              No tags yet
+                            </span>
+                          )}
+                          {topTags.length > 0 && filteredPlayerTags.length === 0 && (
+                            <span className="block rounded-xl bg-slatewash px-3 py-2 text-xs text-ink-500 dark:bg-white/5 dark:text-slate-400">
+                              No matching tags
+                            </span>
+                          )}
+                          {filteredPlayerTags.map((tag) => {
                             const active = currentItem.tags.includes(tag);
                             return (
                               <button
@@ -639,6 +687,8 @@ export default function App() {
                             name="tag"
                             placeholder="Add tag"
                             ref={tagInputRef}
+                            value={tagDraft}
+                            onChange={(event) => setTagDraft(event.target.value)}
                           />
                           <button className="rounded-xl bg-ink-900 px-3 py-1 text-xs font-semibold text-white">
                             Add
@@ -840,11 +890,20 @@ export default function App() {
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
                       Tags (AND)
                     </p>
+                    <input
+                      className="mt-2 w-full rounded-lg border border-mist bg-white px-2 py-1 text-xs text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                      value={tagFilterQuery}
+                      onChange={(event) => setTagFilterQuery(event.target.value)}
+                      placeholder="Type to filter tags"
+                    />
                     <div className="mt-2 flex flex-wrap gap-2">
                       {topTags.length === 0 && (
                         <span className="text-xs text-ink-500 dark:text-slate-400">No tags yet</span>
                       )}
-                      {topTags.map((tag) => {
+                      {topTags.length > 0 && filteredTags.length === 0 && (
+                        <span className="text-xs text-ink-500 dark:text-slate-400">No matching tags</span>
+                      )}
+                      {filteredTags.map((tag) => {
                         const active = options.tags.includes(tag);
                         return (
                           <button

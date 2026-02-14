@@ -326,20 +326,18 @@ export class LibraryManager {
     this.db.prepare("INSERT OR IGNORE INTO tags (name) VALUES (?)").run(tagName);
   }
 
-  getTopTags(limit = 10) {
+  getTopTags() {
     if (!this.db) return [];
     const rows = this.db
       .prepare(
         `
-        SELECT t.name, COUNT(ft.id) as count
+        SELECT t.name
         FROM tags t
-        LEFT JOIN file_tags ft ON ft.tag_id = t.id
         GROUP BY t.id
-        ORDER BY count DESC, t.name ASC
-        LIMIT ?
+        ORDER BY t.name COLLATE NOCASE ASC, t.name ASC
       `
       )
-      .all(limit) as { name: string }[];
+      .all() as { name: string }[];
 
     return rows.map((row) => row.name);
   }
