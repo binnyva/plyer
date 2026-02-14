@@ -11,6 +11,7 @@ import type { AppState, PendingOpenInfo, PlaylistOptions, PlaylistRequest, SortM
 const WINDOW_BASE_WIDTH = 1120;
 const WINDOW_BASE_HEIGHT = 760;
 const PLAYLIST_WIDTH = 360;
+const APP_ICON_RELATIVE_PATH = path.join("assets", "icons", "app-icon.png");
 const PLYER_SCHEME = "plyer";
 const MIME_BY_EXT: Record<string, string> = {
   ".mp4": "video/mp4",
@@ -63,6 +64,7 @@ const config = loadConfig();
 let playlistVisible = config.playlistVisible ?? true;
 let startupWindowBounds: WindowBounds | null = null;
 let windowBoundsSaveTimer: NodeJS.Timeout | null = null;
+const appIconPath = resolveAppIconPath();
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -79,6 +81,19 @@ protocol.registerSchemesAsPrivileged([
 
 function getMimeType(filePath: string) {
   return MIME_BY_EXT[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
+}
+
+function resolveAppIconPath() {
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, APP_ICON_RELATIVE_PATH)]
+    : [path.resolve(__dirname, "../../../", APP_ICON_RELATIVE_PATH), path.resolve(process.cwd(), APP_ICON_RELATIVE_PATH)];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
 }
 
 function getHeaderValue(
@@ -315,6 +330,7 @@ function createWindow() {
     titleBarStyle: "default",
     autoHideMenuBar: true,
     backgroundColor: "#0f172a",
+    icon: appIconPath,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -463,6 +479,10 @@ app.on("open-file", (event, filePath) => {
 });
 
 app.whenReady().then(() => {
+  if (process.platform === "darwin" && appIconPath) {
+    app.dock.setIcon(appIconPath);
+  }
+
   protocol.handle(PLYER_SCHEME, async (request) => {
     const url = new URL(request.url);
     let filePath = decodeURIComponent(url.pathname);
