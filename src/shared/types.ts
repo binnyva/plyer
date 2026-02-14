@@ -43,3 +43,24 @@ export interface PendingOpenInfo {
   foundDbRoot: string | null;
   fileUrl?: string | null;
 }
+
+export interface AppState {
+  libraryRoot: string | null;
+  pendingOpen: PendingOpenInfo | null;
+  playlistVisible: boolean;
+  volume: number;
+  muted: boolean;
+  loopPlaylist: boolean;
+  detailsVisible: boolean;
+  options: PlaylistOptions;
+  currentMediaPath: string | null;
+}
+
+export interface UiSettingsPatch {
+  volume?: number;
+  muted?: boolean;
+  loopPlaylist?: boolean;
+  detailsVisible?: boolean;
+  options?: PlaylistOptions;
+  currentMediaPath?: string | null;
+}

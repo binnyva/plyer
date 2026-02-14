@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FileItem, PendingOpenInfo, PlaylistOptions, SortMode } from "@shared/types";
+import type { AppState, FileItem, PendingOpenInfo, PlaylistOptions, SortMode } from "@shared/types";
 
 const SORT_LABELS: Record<SortMode, string> = {
   playlist: "Playlist Order",
@@ -22,6 +22,8 @@ export default function App() {
   const scanningRef = useRef(false);
   const itemsRef = useRef<FileItem[]>([]);
   const loadingRef = useRef(false);
+  const settingsHydratedRef = useRef(false);
+  const restoreMediaPathRef = useRef<string | null>(null);
   const [libraryRoot, setLibraryRoot] = useState<string | null>(null);
   const [pendingOpen, setPendingOpen] = useState<PendingOpenInfo | null>(null);
   const [playlistVisible, setPlaylistVisible] = useState(true);
@@ -55,6 +57,23 @@ export default function App() {
   const ratingButtonRef = useRef<HTMLButtonElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
 
+  const applyAppState = (state: AppState) => {
+    setLibraryRoot(state.libraryRoot);
+    setPendingOpen(state.pendingOpen);
+    setPlaylistVisible(state.playlistVisible);
+    setVolume(state.volume);
+    setMuted(state.muted);
+    setLoopPlaylist(state.loopPlaylist);
+    setDetailsVisible(state.detailsVisible);
+    setOptions({
+      sort: state.options.sort,
+      ratingMin: state.options.ratingMin,
+      tags: [...state.options.tags]
+    });
+    restoreMediaPathRef.current = state.currentMediaPath;
+    settingsHydratedRef.current = true;
+  };
+
   const currentItem = useMemo(() => items.find((item) => item.id === currentId) ?? null, [items, currentId]);
   const isRated = (currentItem?.rating ?? 0) > 0;
   const filteredPlayerTags = useMemo(() => {
@@ -84,11 +103,9 @@ export default function App() {
 
   useEffect(() => {
     window.api.getAppState().then((state) => {
-      setLibraryRoot(state.libraryRoot);
-      setPendingOpen(state.pendingOpen);
-      setPlaylistVisible(state.playlistVisible ?? true);
+      applyAppState(state);
       if (state.libraryRoot) {
-        scanAndRefresh();
+        scanAndRefresh(state.currentMediaPath);
       }
     });
 
@@ -125,9 +142,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (libraryRoot && !scanningRef.current) {
-      loadPlaylistPage(0, true);
-    }
+    if (!libraryRoot || scanningRef.current) return;
+    const restorePath = restoreMediaPathRef.current;
+    restoreMediaPathRef.current = null;
+
+    (async () => {
+      await loadPlaylistPage(0, true);
+      if (restorePath) {
+        await playByAbsolutePath(restorePath);
+      }
+    })();
   }, [libraryRoot, options.sort, options.ratingMin, options.tags.join("|"), randomSeed]);
 
   useEffect(() => {
@@ -239,6 +263,35 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [tagMenuOpen, ratingMenuOpen]);
 
+  useEffect(() => {
+    if (!libraryRoot || !settingsHydratedRef.current) return;
+    const timer = window.setTimeout(() => {
+      window.api.updateSettings({
+        volume,
+        muted,
+        loopPlaylist,
+        detailsVisible,
+        options
+      });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [
+    libraryRoot,
+    volume,
+    muted,
+    loopPlaylist,
+    detailsVisible,
+    options.sort,
+    options.ratingMin,
+    options.tags.join("|")
+  ]);
+
+  useEffect(() => {
+    if (!libraryRoot || !settingsHydratedRef.current) return;
+    const mediaPath = externalFile ? null : currentItem?.path ?? null;
+    window.api.updateSettings({ currentMediaPath: mediaPath });
+  }, [libraryRoot, externalFile?.path, currentItem?.id]);
+
   const buildPlaylistRequest = (offset: number) => ({
     ...options,
     limit: PAGE_SIZE,
@@ -274,23 +327,27 @@ export default function App() {
     await loadPlaylistPage(offset, false);
   };
 
-  const scanAndRefresh = async () => {
+  const scanAndRefresh = async (restorePath?: string | null) => {
     scanningRef.current = true;
     setStatus("Scanning library...");
     try {
       await window.api.scanLibrary();
       await loadPlaylistPage(0, true);
+      if (restorePath) {
+        await playByAbsolutePath(restorePath);
+      }
     } finally {
       scanningRef.current = false;
+      setStatus(null);
     }
   };
 
   const handleChooseRoot = async () => {
     const root = await window.api.chooseLibraryRoot();
     if (!root) return;
-    await window.api.setLibraryRoot(root);
-    setLibraryRoot(root);
-    await scanAndRefresh();
+    const state = await window.api.setLibraryRoot(root);
+    applyAppState(state);
+    await scanAndRefresh(state.currentMediaPath);
   };
 
   const handleDrop = async (event: React.DragEvent) => {
@@ -322,9 +379,9 @@ export default function App() {
 
     if (info.kind === "folder") {
       if (action === "switch") {
-        await window.api.setLibraryRoot(info.path);
-        setLibraryRoot(info.path);
-        await scanAndRefresh();
+        const state = await window.api.setLibraryRoot(info.path);
+        applyAppState(state);
+        await scanAndRefresh(state.currentMediaPath);
       }
       return;
     }
@@ -343,9 +400,9 @@ export default function App() {
 
     if (action === "switch") {
       const root = info.foundDbRoot ?? info.suggestedRoot;
-      await window.api.setLibraryRoot(root);
-      setLibraryRoot(root);
-      await scanAndRefresh();
+      const state = await window.api.setLibraryRoot(root);
+      applyAppState(state);
+      await scanAndRefresh(state.currentMediaPath);
       await playByAbsolutePath(info.path);
     }
   };
@@ -529,10 +586,11 @@ export default function App() {
     window.api.saveOrder(updated.map((item) => item.id));
   };
 
-  const togglePlaylist = () => {
+  const togglePlaylist = async () => {
     const next = !playlistVisible;
     setPlaylistVisible(next);
-    window.api.setPlaylistVisible(next);
+    const state = await window.api.setPlaylistVisible(next);
+    setPlaylistVisible(state.playlistVisible);
   };
 
   const activeName = externalFile?.name ?? currentItem?.name ?? "";

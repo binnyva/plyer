@@ -355,6 +355,27 @@ export class LibraryManager {
     });
     tx(fileIds);
   }
+
+  getSetting(name: string) {
+    if (!this.db) return null;
+    const row = this.db.prepare("SELECT value FROM settings WHERE name = ?").get(name) as
+      | { value: string | null }
+      | undefined;
+    return row?.value ?? null;
+  }
+
+  setSetting(name: string, value: string | null) {
+    if (!this.db) return;
+    this.db
+      .prepare(
+        `
+        INSERT INTO settings (name, value)
+        VALUES (?, ?)
+        ON CONFLICT(name) DO UPDATE SET value = excluded.value
+      `
+      )
+      .run(name, value);
+  }
 }
 
 function buildPlaylistQueryParts(options: PlaylistRequest) {

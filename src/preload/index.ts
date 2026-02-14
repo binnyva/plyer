@@ -1,12 +1,12 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { PendingOpenInfo, PlaylistRequest } from "../shared/types";
+import type { AppState, PendingOpenInfo, PlaylistRequest, UiSettingsPatch } from "../shared/types";
 
 contextBridge.exposeInMainWorld("api", {
-  getAppState: () => ipcRenderer.invoke("app:get-state"),
+  getAppState: (): Promise<AppState> => ipcRenderer.invoke("app:get-state"),
   chooseLibraryRoot: () => ipcRenderer.invoke("library:choose-root"),
   inspectPath: (path: string): Promise<PendingOpenInfo | null> =>
     ipcRenderer.invoke("library:inspect-path", path),
-  setLibraryRoot: (root: string) => ipcRenderer.invoke("library:set-root", root),
+  setLibraryRoot: (root: string): Promise<AppState> => ipcRenderer.invoke("library:set-root", root),
   scanLibrary: () => ipcRenderer.invoke("library:scan"),
   getPlaylist: (options: PlaylistRequest) => ipcRenderer.invoke("playlist:get", options),
   setRating: (fileId: number, rating: number) => ipcRenderer.invoke("file:set-rating", { fileId, rating }),
@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld("api", {
     return () => ipcRenderer.removeListener("library:thumbnail-ready", handler);
   },
   clearPendingOpen: () => ipcRenderer.invoke("app:clear-pending"),
-  setPlaylistVisible: (visible: boolean) => ipcRenderer.invoke("window:playlist-visible", visible),
+  setPlaylistVisible: (visible: boolean): Promise<AppState> => ipcRenderer.invoke("window:playlist-visible", visible),
+  updateSettings: (patch: UiSettingsPatch): Promise<AppState> => ipcRenderer.invoke("settings:update", patch),
   revealInFolder: (absolutePath: string) => ipcRenderer.invoke("file:reveal", absolutePath)
 });

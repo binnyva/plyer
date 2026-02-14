@@ -1,18 +1,15 @@
 /// <reference types="vite/client" />
 
 import type { PendingOpenInfo, PlaylistRequest, PlaylistResponse } from "@shared/types";
+import type { AppState, UiSettingsPatch } from "@shared/types";
 
 declare global {
   interface Window {
     api: {
-      getAppState: () => Promise<{
-        libraryRoot: string | null;
-        pendingOpen: PendingOpenInfo | null;
-        playlistVisible: boolean;
-      }>;
+      getAppState: () => Promise<AppState>;
       chooseLibraryRoot: () => Promise<string | null>;
       inspectPath: (path: string) => Promise<PendingOpenInfo | null>;
-      setLibraryRoot: (root: string) => Promise<void>;
+      setLibraryRoot: (root: string) => Promise<AppState>;
       scanLibrary: () => Promise<{ added: number; removed: number; updated: number }>;
       getPlaylist: (options: PlaylistRequest) => Promise<PlaylistResponse>;
       setRating: (fileId: number, rating: number) => Promise<void>;
@@ -28,7 +25,8 @@ declare global {
         cb: (payload: { filePath: string; thumbPath: string; thumbnailUrl: string }) => void
       ) => () => void;
       clearPendingOpen: () => Promise<void>;
-      setPlaylistVisible: (visible: boolean) => Promise<void>;
+      setPlaylistVisible: (visible: boolean) => Promise<AppState>;
+      updateSettings: (patch: UiSettingsPatch) => Promise<AppState>;
       revealInFolder: (absolutePath: string) => Promise<void>;
     };
   }
