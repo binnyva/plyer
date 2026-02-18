@@ -617,6 +617,7 @@ export default function App() {
                   ref={videoRef}
                   className="h-full w-full object-contain"
                   src={externalFile ? externalFile.url : currentItem?.fileUrl ?? ""}
+                  onClick={togglePlay}
                   onTimeUpdate={handleTimeUpdate}
                   onLoadedMetadata={handleLoadedMetadata}
                   onPlay={handlePlay}
