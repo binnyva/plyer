@@ -16,12 +16,25 @@ const DEFAULT_OPTIONS: PlaylistOptions = {
 };
 const PAGE_SIZE = 50;
 
+function mergeUniqueById(existing: FileItem[], incoming: FileItem[]) {
+  const seen = new Set<number>();
+  const merged: FileItem[] = [];
+  for (const item of [...existing, ...incoming]) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    merged.push(item);
+  }
+  return merged;
+}
+
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastPlayedRef = useRef<number | null>(null);
   const scanningRef = useRef(false);
   const itemsRef = useRef<FileItem[]>([]);
   const loadingRef = useRef(false);
+  const hasMoreRef = useRef(false);
+  const totalCountRef = useRef(0);
   const settingsHydratedRef = useRef(false);
   const restoreMediaPathRef = useRef<string | null>(null);
   const [libraryRoot, setLibraryRoot] = useState<string | null>(null);
@@ -100,6 +113,14 @@ export default function App() {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+
+  useEffect(() => {
+    totalCountRef.current = totalCount;
+  }, [totalCount]);
 
   useEffect(() => {
     window.api.getAppState().then((state) => {
@@ -304,10 +325,15 @@ export default function App() {
     setIsLoadingPage(true);
     try {
       const result = await window.api.getPlaylist(buildPlaylistRequest(offset));
-      setItems((prev) => (reset ? result.items : [...prev, ...result.items]));
+      const nextItems = reset ? mergeUniqueById([], result.items) : mergeUniqueById(itemsRef.current, result.items);
+      itemsRef.current = nextItems;
+      setItems(nextItems);
       setTotalCount(result.total);
-      const nextCount = reset ? result.items.length : offset + result.items.length;
-      setHasMore(nextCount < result.total);
+      const nextCount = nextItems.length;
+      const nextHasMore = nextCount < result.total;
+      setHasMore(nextHasMore);
+      hasMoreRef.current = nextHasMore;
+      totalCountRef.current = result.total;
       setStatus(null);
       if (reset) {
         setCurrentId((prev) =>
@@ -459,15 +485,18 @@ export default function App() {
   };
 
   const playNext = async () => {
-    if (!items.length || externalFile) return;
+    if (!itemsRef.current.length || externalFile) return;
     if (loadingRef.current) return;
-    const index = items.findIndex((item) => item.id === currentId);
+    const currentItems = itemsRef.current;
+    const index = currentItems.findIndex((item) => item.id === currentId);
     if (index === -1) return;
-    if (index < items.length - 1) {
-      setCurrentId(items[index + 1].id);
+    if (index < currentItems.length - 1) {
+      setCurrentId(currentItems[index + 1].id);
       return;
     }
-    if (hasMore) {
+
+    const canLoadMore = () => hasMoreRef.current || itemsRef.current.length < totalCountRef.current;
+    if (canLoadMore()) {
       const offset = itemsRef.current.length;
       const result = await loadPlaylistPage(offset, false);
       if (result.items.length > 0) {
@@ -475,8 +504,9 @@ export default function App() {
         return;
       }
     }
-    if (loopPlaylist) {
-      setCurrentId(items[0].id);
+    if (loopPlaylist && !canLoadMore()) {
+      const first = itemsRef.current[0];
+      if (first) setCurrentId(first.id);
     }
   };
 
@@ -594,6 +624,8 @@ export default function App() {
   };
 
   const activeName = externalFile?.name ?? currentItem?.name ?? "";
+  const currentPlaylistIndex = currentItem ? items.findIndex((item) => item.id === currentItem.id) : -1;
+  const showPlaylistStatus = !externalFile && currentPlaylistIndex >= 0 && totalCount > 0;
   const isTagged = !!currentItem && !externalFile && currentItem.tags.length > 0;
 
   return (
@@ -855,8 +887,13 @@ export default function App() {
               {detailsVisible && (
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-lg font-display text-ink-900 dark:text-white">
-                      {externalFile?.name ?? currentItem?.name ?? ""}
+                    <p className="flex items-baseline gap-2 text-lg font-display text-ink-900 dark:text-white">
+                      <span>{externalFile?.name ?? currentItem?.name ?? ""}</span>
+                      {showPlaylistStatus && (
+                        <span className="text-sm font-medium text-ink-500 dark:text-slate-400">
+                          ({currentPlaylistIndex + 1}/{totalCount})
+                        </span>
+                      )}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
