@@ -717,7 +717,7 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="relative max-[480px]:hidden">
+                  <div className="relative max-[520px]:hidden">
                     <button
                       ref={tagButtonRef}
                       className={`rounded-xl border p-2 shadow-sm transition hover:-translate-y-0.5 ${
@@ -789,7 +789,7 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="relative max-[520px]:hidden">
+                  <div className="relative max-[560px]:hidden">
                     <button
                       ref={ratingButtonRef}
                       className={`rounded-xl border p-2 shadow-sm transition hover:-translate-y-0.5 ${
@@ -836,7 +836,34 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 max-[680px]:hidden">
+                <div className="flex items-center max-[680px]:hidden">
+                  <button
+                    className={`rounded-xl border p-2 shadow-sm transition hover:-translate-y-0.5 ${
+                      playlistVisible
+                        ? "border-ocean bg-ocean/10 text-ocean"
+                        : "border-mist bg-white text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    }`}
+                    onClick={togglePlaylist}
+                    title="Toggle Playlist"
+                    aria-label="Toggle Playlist"
+                  >
+                    <PlaylistIcon />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2 max-[720px]:hidden">
+                  <button
+                    className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white dark:border-white/10 dark:bg-white/10 dark:text-white"
+                    onClick={() => setDetailsVisible((prev) => !prev)}
+                    title={detailsVisible ? "Hide Details" : "Show Details"}
+                    aria-label={detailsVisible ? "Hide Details" : "Show Details"}
+                    aria-pressed={detailsVisible}
+                  >
+                    {detailsVisible ? <ChevronUpIcon /> : <ChevronDownIcon />}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-3 max-[760px]:hidden">
                   <button
                     className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 dark:border-white/10 dark:bg-white/10 dark:text-white"
                     onClick={() => setMuted((prev) => !prev)}
@@ -854,33 +881,6 @@ export default function App() {
                     value={muted ? 0 : volume}
                     onChange={handleVolume}
                   />
-                </div>
-
-                <div className="flex items-center gap-2 max-[720px]:hidden">
-                  <button
-                    className="rounded-xl border border-mist bg-white p-2 text-ink-700 shadow-sm transition hover:-translate-y-0.5 hover:bg-white dark:border-white/10 dark:bg-white/10 dark:text-white"
-                    onClick={() => setDetailsVisible((prev) => !prev)}
-                    title={detailsVisible ? "Hide Details" : "Show Details"}
-                    aria-label={detailsVisible ? "Hide Details" : "Show Details"}
-                    aria-pressed={detailsVisible}
-                  >
-                    {detailsVisible ? <ChevronUpIcon /> : <ChevronDownIcon />}
-                  </button>
-                </div>
-
-                <div className="flex items-center max-[760px]:hidden">
-                  <button
-                    className={`rounded-xl border p-2 shadow-sm transition hover:-translate-y-0.5 ${
-                      playlistVisible
-                        ? "border-ocean bg-ocean/10 text-ocean"
-                        : "border-mist bg-white text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
-                    }`}
-                    onClick={togglePlaylist}
-                    title="Toggle Playlist"
-                    aria-label="Toggle Playlist"
-                  >
-                    <PlaylistIcon />
-                  </button>
                 </div>
               </div>
 
