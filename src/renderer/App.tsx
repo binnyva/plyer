@@ -794,7 +794,7 @@ export default function App() {
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
                           Tags
                         </p>
-                        <div className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1">
+                        <div className="mt-2 max-h-48 space-y-1 overflow-y-auto pr-1">
                           {tagMenuMode === "quick" && playerTagOptions.length === 0 && (
                             <span className="block rounded-xl bg-slatewash px-3 py-2 text-xs text-ink-500 dark:bg-white/5 dark:text-slate-400">
                               No tags yet
@@ -815,7 +815,7 @@ export default function App() {
                             return (
                               <button
                                 key={tag}
-                                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
+                                className={`flex w-full items-center justify-between rounded-xl px-3 py-1.5 text-left text-sm transition ${
                                   active
                                     ? "bg-ocean/10 text-ocean"
                                     : "bg-slatewash text-ink-700 dark:bg-white/5 dark:text-white"
@@ -871,11 +871,11 @@ export default function App() {
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
                           Rating
                         </p>
-                        <div className="mt-2 space-y-2">
+                        <div className="mt-2 space-y-1">
                           {RATING_OPTIONS.map((rating) => (
                             <button
                               key={rating}
-                              className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
+                              className={`flex w-full items-center justify-between rounded-xl px-3 py-1.5 text-left text-sm transition ${
                                 currentItem.rating === rating
                                   ? "bg-coral/10 text-coral"
                                   : "bg-slatewash text-ink-700 dark:bg-white/5 dark:text-white"
