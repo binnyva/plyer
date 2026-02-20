@@ -327,18 +327,23 @@ export default function App() {
     window.api.updateSettings({ currentMediaPath: mediaPath });
   }, [libraryRoot, externalFile?.path, currentItem?.id]);
 
-  const buildPlaylistRequest = (offset: number) => ({
+  const buildPlaylistRequest = (offset: number, limit = PAGE_SIZE) => ({
     ...options,
-    limit: PAGE_SIZE,
+    limit,
     offset,
     seed: options.sort === "random" ? randomSeed : undefined
   });
 
-  const loadPlaylistPage = async (offset: number, reset: boolean) => {
+  const loadPlaylistPage = async (
+    offset: number,
+    reset: boolean,
+    limit = PAGE_SIZE,
+    preferredCurrentId?: number
+  ) => {
     loadingRef.current = true;
     setIsLoadingPage(true);
     try {
-      const result = await window.api.getPlaylist(buildPlaylistRequest(offset));
+      const result = await window.api.getPlaylist(buildPlaylistRequest(offset, limit));
       const nextItems = reset ? mergeUniqueById([], result.items) : mergeUniqueById(itemsRef.current, result.items);
       itemsRef.current = nextItems;
       setItems(nextItems);
@@ -350,9 +355,13 @@ export default function App() {
       totalCountRef.current = result.total;
       setStatus(null);
       if (reset) {
-        setCurrentId((prev) =>
-          prev && result.items.some((item) => item.id === prev) ? prev : result.items[0]?.id ?? null
-        );
+        setCurrentId((prev) => {
+          const candidateId = preferredCurrentId ?? prev;
+          if (candidateId && nextItems.some((item) => item.id === candidateId)) {
+            return candidateId;
+          }
+          return nextItems[0]?.id ?? null;
+        });
       }
       return result;
     } finally {
@@ -365,6 +374,11 @@ export default function App() {
     if (loadingRef.current || !hasMore) return;
     const offset = itemsRef.current.length;
     await loadPlaylistPage(offset, false);
+  };
+
+  const refreshLoadedPlaylist = async (preferredCurrentId?: number) => {
+    const loadedCount = Math.max(itemsRef.current.length, PAGE_SIZE);
+    await loadPlaylistPage(0, true, loadedCount, preferredCurrentId);
   };
 
   const scanAndRefresh = async (restorePath?: string | null) => {
@@ -580,16 +594,18 @@ export default function App() {
 
   const handleRating = async (value: number) => {
     if (!currentItem) return;
-    await window.api.setRating(currentItem.id, value);
+    const targetId = currentItem.id;
+    await window.api.setRating(targetId, value);
     setRatingMenuOpen(false);
-    if (libraryRoot) loadPlaylistPage(0, true);
+    if (libraryRoot) refreshLoadedPlaylist(targetId);
   };
 
   const handleTagToggle = async (tag: string) => {
     if (!currentItem) return;
-    await window.api.toggleTag(currentItem.id, tag);
+    const targetId = currentItem.id;
+    await window.api.toggleTag(targetId, tag);
     setTagMenuOpen(false);
-    if (libraryRoot) loadPlaylistPage(0, true);
+    if (libraryRoot) refreshLoadedPlaylist(targetId);
   };
 
   const handleTagButtonClick = () => {
@@ -617,10 +633,11 @@ export default function App() {
     event.preventDefault();
     const tag = tagDraft.trim();
     if (!tag || !currentItem) return;
-    await window.api.toggleTag(currentItem.id, tag);
+    const targetId = currentItem.id;
+    await window.api.toggleTag(targetId, tag);
     setTagMenuOpen(false);
     setTagDraft("");
-    if (libraryRoot) loadPlaylistPage(0, true);
+    if (libraryRoot) refreshLoadedPlaylist(targetId);
     window.api.getTopTags().then((tags) => setTopTags(tags));
   };
 
