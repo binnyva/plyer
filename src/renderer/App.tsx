@@ -574,6 +574,7 @@ export default function App() {
   const handleTagToggle = async (tag: string) => {
     if (!currentItem) return;
     await window.api.toggleTag(currentItem.id, tag);
+    setTagMenuOpen(false);
     if (libraryRoot) loadPlaylistPage(0, true);
   };
 
