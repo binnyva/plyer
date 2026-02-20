@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("file:toggle-tag", { fileId, tagName }),
   addTag: (tagName: string) => ipcRenderer.invoke("tag:add", tagName),
   getTopTags: () => ipcRenderer.invoke("tag:top"),
+  getMostUsedTags: (limit = 5) => ipcRenderer.invoke("tag:most-used", limit),
   saveOrder: (fileIds: number[]) => ipcRenderer.invoke("playlist:save-order", fileIds),
   setDuration: (fileId: number, durationMs: number) =>
     ipcRenderer.invoke("file:set-duration", { fileId, durationMs }),

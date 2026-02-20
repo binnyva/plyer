@@ -27,6 +27,10 @@ function mergeUniqueById(existing: FileItem[], incoming: FileItem[]) {
   return merged;
 }
 
+function compareTagNames(a: string, b: string) {
+  return a.localeCompare(b, undefined, { sensitivity: "base" });
+}
+
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastPlayedRef = useRef<number | null>(null);
@@ -60,6 +64,8 @@ export default function App() {
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [detailsVisible, setDetailsVisible] = useState(true);
   const [topTags, setTopTags] = useState<string[]>([]);
+  const [quickTagOptions, setQuickTagOptions] = useState<string[]>([]);
+  const [tagMenuMode, setTagMenuMode] = useState<"default" | "quick">("default");
   const [tagDraft, setTagDraft] = useState("");
   const [tagFilterQuery, setTagFilterQuery] = useState("");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -94,6 +100,12 @@ export default function App() {
     if (!query) return topTags;
     return topTags.filter((tag) => tag.toLowerCase().includes(query));
   }, [topTags, tagDraft]);
+  const playerTagOptions = useMemo(() => {
+    if (tagMenuMode === "quick") {
+      return [...quickTagOptions].sort(compareTagNames);
+    }
+    return filteredPlayerTags;
+  }, [filteredPlayerTags, quickTagOptions, tagMenuMode]);
   const filteredTags = useMemo(() => {
     const query = tagFilterQuery.trim().toLowerCase();
     if (!query) return topTags;
@@ -237,6 +249,8 @@ export default function App() {
   useEffect(() => {
     if (!tagMenuOpen) {
       setTagDraft("");
+      setQuickTagOptions([]);
+      setTagMenuMode("default");
     }
   }, [tagMenuOpen]);
 
@@ -578,6 +592,27 @@ export default function App() {
     if (libraryRoot) loadPlaylistPage(0, true);
   };
 
+  const handleTagButtonClick = () => {
+    setTagMenuOpen((prev) => {
+      if (tagMenuMode === "quick") {
+        return true;
+      }
+      return !prev;
+    });
+    setTagMenuMode("default");
+    setRatingMenuOpen(false);
+  };
+
+  const handleTagButtonContextMenu = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    if (!currentItem || externalFile) return;
+    const tags = await window.api.getMostUsedTags(5);
+    setQuickTagOptions(tags);
+    setTagMenuMode("quick");
+    setTagMenuOpen(true);
+    setRatingMenuOpen(false);
+  };
+
   const handleAddTag = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const tag = tagDraft.trim();
@@ -726,10 +761,8 @@ export default function App() {
                           ? "border-ocean bg-ocean/10 text-ocean"
                           : "border-mist bg-white text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
                       }`}
-                      onClick={() => {
-                        setTagMenuOpen((prev) => !prev);
-                        setRatingMenuOpen(false);
-                      }}
+                      onClick={handleTagButtonClick}
+                      onContextMenu={handleTagButtonContextMenu}
                       disabled={!currentItem || !!externalFile}
                       title="Tags"
                       aria-label="Tags"
@@ -745,17 +778,22 @@ export default function App() {
                           Tags
                         </p>
                         <div className="mt-2 max-h-48 space-y-2 overflow-y-auto pr-1">
-                          {topTags.length === 0 && (
+                          {tagMenuMode === "quick" && playerTagOptions.length === 0 && (
                             <span className="block rounded-xl bg-slatewash px-3 py-2 text-xs text-ink-500 dark:bg-white/5 dark:text-slate-400">
                               No tags yet
                             </span>
                           )}
-                          {topTags.length > 0 && filteredPlayerTags.length === 0 && (
+                          {tagMenuMode === "default" && topTags.length === 0 && (
+                            <span className="block rounded-xl bg-slatewash px-3 py-2 text-xs text-ink-500 dark:bg-white/5 dark:text-slate-400">
+                              No tags yet
+                            </span>
+                          )}
+                          {tagMenuMode === "default" && topTags.length > 0 && filteredPlayerTags.length === 0 && (
                             <span className="block rounded-xl bg-slatewash px-3 py-2 text-xs text-ink-500 dark:bg-white/5 dark:text-slate-400">
                               No matching tags
                             </span>
                           )}
-                          {filteredPlayerTags.map((tag) => {
+                          {playerTagOptions.map((tag) => {
                             const active = currentItem.tags.includes(tag);
                             return (
                               <button

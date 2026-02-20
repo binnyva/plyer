@@ -647,6 +647,10 @@ ipcMain.handle("tag:top", () => {
   return library.getTopTags();
 });
 
+ipcMain.handle("tag:most-used", (_event, limit?: number) => {
+  return library.getMostUsedTags(limit);
+});
+
 ipcMain.handle("playlist:save-order", (_event, fileIds: number[]) => {
   library.saveOrder(fileIds);
 });

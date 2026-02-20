@@ -342,6 +342,26 @@ export class LibraryManager {
     return rows.map((row) => row.name);
   }
 
+  getMostUsedTags(limit = 5) {
+    if (!this.db) return [];
+    const safeLimit = Number.isFinite(limit) ? Math.max(1, Math.trunc(limit)) : 5;
+    const rows = this.db
+      .prepare(
+        `
+        SELECT t.name, COUNT(ft.id) AS usage_count
+        FROM tags t
+        INNER JOIN file_tags ft
+          ON ft.tag_id = t.id
+        GROUP BY t.id
+        ORDER BY usage_count DESC, t.name COLLATE NOCASE ASC, t.name ASC
+        LIMIT ?
+      `
+      )
+      .all(safeLimit) as { name: string }[];
+
+    return rows.map((row) => row.name);
+  }
+
   saveOrder(fileIds: number[]) {
     if (!this.db) return;
     const playlistId = this.libraryPlaylistId;

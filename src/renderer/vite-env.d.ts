@@ -16,6 +16,7 @@ declare global {
       toggleTag: (fileId: number, tagName: string) => Promise<void>;
       addTag: (tagName: string) => Promise<void>;
       getTopTags: () => Promise<string[]>;
+      getMostUsedTags: (limit?: number) => Promise<string[]>;
       saveOrder: (fileIds: number[]) => Promise<void>;
       setDuration: (fileId: number, durationMs: number) => Promise<void>;
       setLastPlayed: (fileId: number) => Promise<void>;
