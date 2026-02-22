@@ -138,7 +138,7 @@ export default function App() {
     window.api.getAppState().then((state) => {
       applyAppState(state);
       if (state.libraryRoot) {
-        scanAndRefresh(state.currentMediaPath);
+        scanAndRefresh(state.currentMediaPath, state.options);
       }
     });
 
@@ -327,23 +327,27 @@ export default function App() {
     window.api.updateSettings({ currentMediaPath: mediaPath });
   }, [libraryRoot, externalFile?.path, currentItem?.id]);
 
-  const buildPlaylistRequest = (offset: number, limit = PAGE_SIZE) => ({
-    ...options,
-    limit,
-    offset,
-    seed: options.sort === "random" ? randomSeed : undefined
-  });
+  const buildPlaylistRequest = (offset: number, limit = PAGE_SIZE, optionsOverride?: PlaylistOptions) => {
+    const requestOptions = optionsOverride ?? options;
+    return {
+      ...requestOptions,
+      limit,
+      offset,
+      seed: requestOptions.sort === "random" ? randomSeed : undefined
+    };
+  };
 
   const loadPlaylistPage = async (
     offset: number,
     reset: boolean,
     limit = PAGE_SIZE,
-    preferredCurrentId?: number
+    preferredCurrentId?: number,
+    optionsOverride?: PlaylistOptions
   ) => {
     loadingRef.current = true;
     setIsLoadingPage(true);
     try {
-      const result = await window.api.getPlaylist(buildPlaylistRequest(offset, limit));
+      const result = await window.api.getPlaylist(buildPlaylistRequest(offset, limit, optionsOverride));
       const nextItems = reset ? mergeUniqueById([], result.items) : mergeUniqueById(itemsRef.current, result.items);
       itemsRef.current = nextItems;
       setItems(nextItems);
@@ -381,14 +385,14 @@ export default function App() {
     await loadPlaylistPage(0, true, loadedCount, preferredCurrentId);
   };
 
-  const scanAndRefresh = async (restorePath?: string | null) => {
+  const scanAndRefresh = async (restorePath?: string | null, optionsOverride?: PlaylistOptions) => {
     scanningRef.current = true;
     setStatus("Scanning library...");
     try {
       await window.api.scanLibrary();
-      await loadPlaylistPage(0, true);
+      await loadPlaylistPage(0, true, PAGE_SIZE, undefined, optionsOverride);
       if (restorePath) {
-        await playByAbsolutePath(restorePath);
+        await playByAbsolutePath(restorePath, optionsOverride);
       }
     } finally {
       scanningRef.current = false;
@@ -401,7 +405,7 @@ export default function App() {
     if (!root) return;
     const state = await window.api.setLibraryRoot(root);
     applyAppState(state);
-    await scanAndRefresh(state.currentMediaPath);
+    await scanAndRefresh(state.currentMediaPath, state.options);
   };
 
   const handleDrop = async (event: React.DragEvent) => {
@@ -435,7 +439,7 @@ export default function App() {
       if (action === "switch") {
         const state = await window.api.setLibraryRoot(info.path);
         applyAppState(state);
-        await scanAndRefresh(state.currentMediaPath);
+        await scanAndRefresh(state.currentMediaPath, state.options);
       }
       return;
     }
@@ -456,12 +460,12 @@ export default function App() {
       const root = info.foundDbRoot ?? info.suggestedRoot;
       const state = await window.api.setLibraryRoot(root);
       applyAppState(state);
-      await scanAndRefresh(state.currentMediaPath);
-      await playByAbsolutePath(info.path);
+      await scanAndRefresh(state.currentMediaPath, state.options);
+      await playByAbsolutePath(info.path, state.options);
     }
   };
 
-  const playByAbsolutePath = async (targetPath: string) => {
+  const playByAbsolutePath = async (targetPath: string, optionsOverride?: PlaylistOptions) => {
     const existing = itemsRef.current.find((item) => item.absolutePath === targetPath);
     if (existing) {
       setExternalFile(null);
@@ -473,7 +477,7 @@ export default function App() {
     let offset = itemsRef.current.length;
     let total = totalCount;
     if (offset === 0) {
-      const result = await loadPlaylistPage(0, true);
+      const result = await loadPlaylistPage(0, true, PAGE_SIZE, undefined, optionsOverride);
       total = result.total;
       const match = result.items.find((item) => item.absolutePath === targetPath);
       if (match) {
@@ -486,7 +490,7 @@ export default function App() {
     }
 
     while (offset < total) {
-      const result = await loadPlaylistPage(offset, false);
+      const result = await loadPlaylistPage(offset, false, PAGE_SIZE, undefined, optionsOverride);
       const match = result.items.find((item) => item.absolutePath === targetPath);
       if (match) {
         setExternalFile(null);
@@ -982,7 +986,7 @@ export default function App() {
                   Sort
                 </label>
                 <select
-                  className="rounded-xl border border-mist bg-white px-3 py-2 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                  className="app-select rounded-xl border border-mist bg-white px-3 py-2 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
                   value={options.sort}
                   onChange={(event) => {
                     const nextSort = event.target.value as SortMode;
@@ -1024,7 +1028,7 @@ export default function App() {
                       Rating
                     </span>
                     <select
-                      className="rounded-lg border border-mist bg-white px-2 py-1 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                      className="app-select rounded-lg border border-mist bg-white px-2 py-1 text-xs font-semibold text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
                       value={options.ratingMin}
                       onChange={(event) =>
                         setOptions((prev) => ({ ...prev, ratingMin: Number(event.target.value) }))

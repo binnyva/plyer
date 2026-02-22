@@ -52,3 +52,10 @@ body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* KDE/Qt can render native select popups with a light background while
+   inheriting the closed control's dark-mode text color. Force readable menu items. */
+.app-select option {
+  color: #111827;
+  background-color: #ffffff;
+}
