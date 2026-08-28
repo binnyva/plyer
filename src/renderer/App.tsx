@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AppState, FileItem, PendingOpenInfo, PlaylistOptions, SortMode } from "@shared/types";
+import type { AppMenuCommand, AppState, FileItem, PendingOpenInfo, PlaylistOptions, SortMode } from "@shared/types";
 
 const SORT_LABELS: Record<SortMode, string> = {
   playlist: "Playlist Order",
@@ -12,7 +12,8 @@ const RATING_OPTIONS = [0, 1, 2, 3, 4, 5];
 const DEFAULT_OPTIONS: PlaylistOptions = {
   sort: "playlist",
   ratingMin: 0,
-  tags: []
+  tags: [],
+  untaggedOnly: false
 };
 const PAGE_SIZE = 50;
 
@@ -50,6 +51,7 @@ export default function App() {
   const [isLoadingPage, setIsLoadingPage] = useState(false);
   const [randomSeed, setRandomSeed] = useState(() => Date.now());
   const [currentId, setCurrentId] = useState<number | null>(null);
+  const [retainedCurrentItem, setRetainedCurrentItem] = useState<FileItem | null>(null);
   const [externalFile, setExternalFile] = useState<{ name: string; url: string; path: string } | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -75,6 +77,7 @@ export default function App() {
   const tagButtonRef = useRef<HTMLButtonElement>(null);
   const ratingButtonRef = useRef<HTMLButtonElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
+  const appMenuCommandHandlerRef = useRef<(command: AppMenuCommand) => void>(() => undefined);
 
   const applyAppState = (state: AppState) => {
     setLibraryRoot(state.libraryRoot);
@@ -87,13 +90,19 @@ export default function App() {
     setOptions({
       sort: state.options.sort,
       ratingMin: state.options.ratingMin,
-      tags: [...state.options.tags]
+      tags: [...state.options.tags],
+      untaggedOnly: state.options.untaggedOnly
     });
     restoreMediaPathRef.current = state.currentMediaPath;
     settingsHydratedRef.current = true;
   };
 
-  const currentItem = useMemo(() => items.find((item) => item.id === currentId) ?? null, [items, currentId]);
+  const currentItem = useMemo(
+    () =>
+      items.find((item) => item.id === currentId) ??
+      (retainedCurrentItem?.id === currentId ? retainedCurrentItem : null),
+    [items, currentId, retainedCurrentItem]
+  );
   const isRated = (currentItem?.rating ?? 0) > 0;
   const filteredPlayerTags = useMemo(() => {
     const query = tagDraft.trim().toLowerCase();
@@ -152,6 +161,7 @@ export default function App() {
         playPrev();
       }
     });
+    const unsubscribeMenu = window.api.onAppMenuCommand((command) => appMenuCommandHandlerRef.current(command));
     const unsubscribeThumbs = window.api.onThumbnailReady((payload) => {
       setItems((prev) => {
         const index = prev.findIndex((item) => item.absolutePath === payload.filePath);
@@ -170,6 +180,7 @@ export default function App() {
     return () => {
       unsubscribePending();
       unsubscribeMedia();
+      unsubscribeMenu();
       unsubscribeThumbs();
     };
   }, []);
@@ -185,7 +196,7 @@ export default function App() {
         await playByAbsolutePath(restorePath);
       }
     })();
-  }, [libraryRoot, options.sort, options.ratingMin, options.tags.join("|"), randomSeed]);
+  }, [libraryRoot, options.sort, options.ratingMin, options.tags.join("|"), options.untaggedOnly, randomSeed]);
 
   useEffect(() => {
     if (!currentId && items.length) {
@@ -318,7 +329,8 @@ export default function App() {
     detailsVisible,
     options.sort,
     options.ratingMin,
-    options.tags.join("|")
+    options.tags.join("|"),
+    options.untaggedOnly
   ]);
 
   useEffect(() => {
@@ -342,7 +354,8 @@ export default function App() {
     reset: boolean,
     limit = PAGE_SIZE,
     preferredCurrentId?: number,
-    optionsOverride?: PlaylistOptions
+    optionsOverride?: PlaylistOptions,
+    retainedItem?: FileItem | null
   ) => {
     loadingRef.current = true;
     setIsLoadingPage(true);
@@ -359,9 +372,16 @@ export default function App() {
       totalCountRef.current = result.total;
       setStatus(null);
       if (reset) {
+        const candidateId = preferredCurrentId ?? currentId;
+        const retainsCurrentItem =
+          candidateId !== null && retainedItem?.id === candidateId && !nextItems.some((item) => item.id === candidateId);
+        setRetainedCurrentItem(retainsCurrentItem ? retainedItem : null);
         setCurrentId((prev) => {
-          const candidateId = preferredCurrentId ?? prev;
-          if (candidateId && nextItems.some((item) => item.id === candidateId)) {
+          const targetId = preferredCurrentId ?? prev;
+          if (targetId && nextItems.some((item) => item.id === targetId)) {
+            return targetId;
+          }
+          if (retainsCurrentItem) {
             return candidateId;
           }
           return nextItems[0]?.id ?? null;
@@ -380,9 +400,9 @@ export default function App() {
     await loadPlaylistPage(offset, false);
   };
 
-  const refreshLoadedPlaylist = async (preferredCurrentId?: number) => {
+  const refreshLoadedPlaylist = async (preferredCurrentId?: number, retainedItem?: FileItem | null) => {
     const loadedCount = Math.max(itemsRef.current.length, PAGE_SIZE);
-    await loadPlaylistPage(0, true, loadedCount, preferredCurrentId);
+    await loadPlaylistPage(0, true, loadedCount, preferredCurrentId, undefined, retainedItem);
   };
 
   const scanAndRefresh = async (restorePath?: string | null, optionsOverride?: PlaylistOptions) => {
@@ -521,7 +541,11 @@ export default function App() {
     if (loadingRef.current) return;
     const currentItems = itemsRef.current;
     const index = currentItems.findIndex((item) => item.id === currentId);
-    if (index === -1) return;
+    if (index === -1) {
+      const first = currentItems[0];
+      if (first) setCurrentId(first.id);
+      return;
+    }
     if (index < currentItems.length - 1) {
       setCurrentId(currentItems[index + 1].id);
       return;
@@ -601,7 +625,7 @@ export default function App() {
     const targetId = currentItem.id;
     await window.api.setRating(targetId, value);
     setRatingMenuOpen(false);
-    if (libraryRoot) refreshLoadedPlaylist(targetId);
+    if (libraryRoot) refreshLoadedPlaylist(targetId, { ...currentItem, rating: value });
   };
 
   const handleTagToggle = async (tag: string) => {
@@ -609,7 +633,10 @@ export default function App() {
     const targetId = currentItem.id;
     await window.api.toggleTag(targetId, tag);
     setTagMenuOpen(false);
-    if (libraryRoot) refreshLoadedPlaylist(targetId);
+    const tags = currentItem.tags.includes(tag)
+      ? currentItem.tags.filter((currentTag) => currentTag !== tag)
+      : [...currentItem.tags, tag];
+    if (libraryRoot) refreshLoadedPlaylist(targetId, { ...currentItem, tags });
   };
 
   const handleTagButtonClick = () => {
@@ -641,7 +668,10 @@ export default function App() {
     await window.api.toggleTag(targetId, tag);
     setTagMenuOpen(false);
     setTagDraft("");
-    if (libraryRoot) refreshLoadedPlaylist(targetId);
+    const tags = currentItem.tags.includes(tag)
+      ? currentItem.tags.filter((currentTag) => currentTag !== tag)
+      : [...currentItem.tags, tag];
+    if (libraryRoot) refreshLoadedPlaylist(targetId, { ...currentItem, tags });
     window.api.getTopTags().then((tags) => setTopTags(tags));
   };
 
@@ -650,9 +680,18 @@ export default function App() {
       const exists = prev.tags.includes(tag);
       return {
         ...prev,
-        tags: exists ? prev.tags.filter((t) => t !== tag) : [...prev.tags, tag]
+        tags: exists ? prev.tags.filter((t) => t !== tag) : [...prev.tags, tag],
+        untaggedOnly: false
       };
     });
+  };
+
+  const handleUntaggedFilter = () => {
+    setOptions((prev) => ({
+      ...prev,
+      tags: [],
+      untaggedOnly: !prev.untaggedOnly
+    }));
   };
 
   const handlePlaylistScroll = (event: React.UIEvent<HTMLDivElement>) => {
@@ -678,6 +717,60 @@ export default function App() {
     setPlaylistVisible(next);
     const state = await window.api.setPlaylistVisible(next);
     setPlaylistVisible(state.playlistVisible);
+  };
+
+  appMenuCommandHandlerRef.current = (command) => {
+    switch (command.type) {
+      case "choose-library-root":
+        void handleChooseRoot();
+        break;
+      case "rescan-library":
+        if (libraryRoot) void scanAndRefresh();
+        break;
+      case "toggle-play":
+        togglePlay();
+        break;
+      case "next":
+        void playNext();
+        break;
+      case "previous":
+        playPrev();
+        break;
+      case "set-rating":
+        void handleRating(command.rating);
+        break;
+      case "toggle-tag":
+        void handleTagToggle(command.tag);
+        break;
+      case "set-details-visible":
+        setDetailsVisible(command.visible);
+        break;
+      case "set-playlist-visible":
+        setPlaylistVisible(command.visible);
+        break;
+      case "set-sort":
+        setOptions((prev) => ({ ...prev, sort: command.sort }));
+        if (command.sort === "random") setRandomSeed(Date.now());
+        break;
+      case "set-rating-filter":
+        setOptions((prev) => ({ ...prev, ratingMin: command.ratingMin }));
+        break;
+      case "toggle-tag-filter":
+        setOptions((prev) => ({
+          ...prev,
+          tags: prev.tags.includes(command.tag)
+            ? prev.tags.filter((tag) => tag !== command.tag)
+            : [...prev.tags, command.tag],
+          untaggedOnly: false
+        }));
+        break;
+      case "set-untagged-filter":
+        setOptions((prev) => ({ ...prev, tags: [], untaggedOnly: command.enabled }));
+        break;
+      case "set-loop-playlist":
+        setLoopPlaylist(command.enabled);
+        break;
+    }
   };
 
   const activeName = externalFile?.name ?? currentItem?.name ?? "";
@@ -1053,6 +1146,16 @@ export default function App() {
                       placeholder="Type to filter tags"
                     />
                     <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                          options.untaggedOnly
+                            ? "bg-ocean text-white"
+                            : "border border-mist bg-white text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
+                        }`}
+                        onClick={handleUntaggedFilter}
+                      >
+                        No Tags
+                      </button>
                       {topTags.length === 0 && (
                         <span className="text-xs text-ink-500 dark:text-slate-400">No tags yet</span>
                       )}

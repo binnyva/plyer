@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { PendingOpenInfo, PlaylistRequest, PlaylistResponse } from "@shared/types";
+import type { AppMenuCommand, PendingOpenInfo, PlaylistRequest, PlaylistResponse } from "@shared/types";
 import type { AppState, UiSettingsPatch } from "@shared/types";
 
 declare global {
@@ -22,6 +22,7 @@ declare global {
       setLastPlayed: (fileId: number) => Promise<void>;
       onPendingOpen: (cb: (info: PendingOpenInfo) => void) => () => void;
       onMediaControl: (cb: (action: "toggle" | "next" | "previous") => void) => () => void;
+      onAppMenuCommand: (cb: (command: AppMenuCommand) => void) => () => void;
       onThumbnailReady: (
         cb: (payload: { filePath: string; thumbPath: string; thumbnailUrl: string }) => void
       ) => () => void;

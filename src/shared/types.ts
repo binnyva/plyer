@@ -1,9 +1,26 @@
 export type SortMode = "playlist" | "filename" | "created" | "random";
 
+export type AppMenuCommand =
+  | { type: "choose-library-root" }
+  | { type: "rescan-library" }
+  | { type: "toggle-play" }
+  | { type: "next" }
+  | { type: "previous" }
+  | { type: "set-rating"; rating: number }
+  | { type: "toggle-tag"; tag: string }
+  | { type: "set-details-visible"; visible: boolean }
+  | { type: "set-playlist-visible"; visible: boolean }
+  | { type: "set-sort"; sort: SortMode }
+  | { type: "set-rating-filter"; ratingMin: number }
+  | { type: "toggle-tag-filter"; tag: string }
+  | { type: "set-untagged-filter"; enabled: boolean }
+  | { type: "set-loop-playlist"; enabled: boolean };
+
 export interface PlaylistOptions {
   sort: SortMode;
   ratingMin: number;
   tags: string[];
+  untaggedOnly: boolean;
 }
 
 export interface PlaylistRequest extends PlaylistOptions {

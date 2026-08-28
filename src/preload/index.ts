@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppState, PendingOpenInfo, PlaylistRequest, UiSettingsPatch } from "../shared/types";
+import type { AppMenuCommand, AppState, PendingOpenInfo, PlaylistRequest, UiSettingsPatch } from "../shared/types";
 
 contextBridge.exposeInMainWorld("api", {
   getAppState: (): Promise<AppState> => ipcRenderer.invoke("app:get-state"),
@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld("api", {
       cb(action);
     ipcRenderer.on("media-control", handler);
     return () => ipcRenderer.removeListener("media-control", handler);
+  },
+  onAppMenuCommand: (cb: (command: AppMenuCommand) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, command: AppMenuCommand) => cb(command);
+    ipcRenderer.on("app:menu-command", handler);
+    return () => ipcRenderer.removeListener("app:menu-command", handler);
   },
   onThumbnailReady: (cb: (payload: { filePath: string; thumbPath: string; thumbnailUrl: string }) => void) => {
     const handler = (_: Electron.IpcRendererEvent, payload: { filePath: string; thumbPath: string; thumbnailUrl: string }) =>

@@ -1,4 +1,14 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, protocol, shell, Menu } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  protocol,
+  shell,
+  Menu,
+  type MenuItemConstructorOptions
+} from "electron";
 import path from "path";
 import fs from "fs";
 import { pathToFileURL } from "url";
@@ -6,11 +16,20 @@ import { Readable } from "stream";
 import { LibraryManager, inspectPath, isVideoFile } from "./library";
 import { loadConfig, saveConfig } from "./config";
 import { thumbnailEvents } from "./thumbnail";
-import type { AppState, PendingOpenInfo, PlaylistOptions, PlaylistRequest, SortMode, UiSettingsPatch } from "../shared/types";
+import type {
+  AppMenuCommand,
+  AppState,
+  PendingOpenInfo,
+  PlaylistOptions,
+  PlaylistRequest,
+  SortMode,
+  UiSettingsPatch
+} from "../shared/types";
 
 const WINDOW_BASE_WIDTH = 1120;
 const WINDOW_BASE_HEIGHT = 760;
 const PLAYLIST_WIDTH = 360;
+app.setName("Plyer");
 const APP_ICON_RELATIVE_PATH = path.join("assets", "icons", "app-icon.png");
 const PLYER_SCHEME = "plyer";
 const MIME_BY_EXT: Record<string, string> = {
@@ -35,6 +54,7 @@ const SETTINGS_KEYS = {
   sort: "ui.sort",
   ratingMin: "ui.rating_min",
   tags: "ui.tags",
+  untaggedOnly: "ui.untagged_only",
   currentMediaPath: "ui.current_media_path",
   windowBounds: "window.bounds"
 } as const;
@@ -208,7 +228,8 @@ function readRootSettings(): RootSettings {
     options: {
       sort: parseSortMode(settingSort),
       ratingMin: parseNumber(settingRatingMin, 0, 0, 5),
-      tags: parseTags(settingTags)
+      tags: parseTags(settingTags),
+      untaggedOnly: parseBoolean(library.getSetting(SETTINGS_KEYS.untaggedOnly), false)
     },
     currentMediaPath: normalizeRelativeMediaPath(settingCurrentMediaPath),
     windowBounds: parseWindowBounds(settingWindowBounds)
@@ -306,15 +327,183 @@ function applyUiSettingsPatch(patch: UiSettingsPatch) {
     const tags = Array.isArray(patch.options.tags)
       ? patch.options.tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
       : [];
+    const untaggedOnly = patch.options.untaggedOnly === true;
 
     library.setSetting(SETTINGS_KEYS.sort, sort);
     library.setSetting(SETTINGS_KEYS.ratingMin, String(ratingMin));
     library.setSetting(SETTINGS_KEYS.tags, JSON.stringify(tags));
+    library.setSetting(SETTINGS_KEYS.untaggedOnly, untaggedOnly ? "1" : "0");
   }
 
   if (patch.currentMediaPath !== undefined) {
     library.setSetting(SETTINGS_KEYS.currentMediaPath, normalizeRelativeMediaPath(patch.currentMediaPath));
   }
+}
+
+function setPlaylistVisibility(visible: boolean) {
+  playlistVisible = visible;
+  config.playlistVisible = visible;
+  saveConfig(config);
+  library.setSetting(SETTINGS_KEYS.playlistVisible, visible ? "1" : "0");
+  updateWindowForPlaylist();
+  scheduleWindowBoundsSave();
+}
+
+function sendAppMenuCommand(command: AppMenuCommand) {
+  mainWindow?.webContents.send("app:menu-command", command);
+}
+
+function refreshApplicationMenu() {
+  if (!app.isReady()) return;
+
+  const settings = readRootSettings();
+  const tags = library.getTopTags();
+  const tagItems: MenuItemConstructorOptions[] = tags.length
+    ? tags.map((tag) => ({
+        label: tag,
+        click: () => sendAppMenuCommand({ type: "toggle-tag", tag })
+      }))
+    : [{ label: "No tags", enabled: false }];
+  const filterTagItems: MenuItemConstructorOptions[] = tags.length
+    ? tags.map((tag) => ({
+        label: tag,
+        type: "checkbox",
+        checked: settings.options.tags.includes(tag),
+        click: () => {
+          const options = {
+            ...settings.options,
+            tags: settings.options.tags.includes(tag)
+              ? settings.options.tags.filter((existingTag) => existingTag !== tag)
+              : [...settings.options.tags, tag],
+            untaggedOnly: false
+          };
+          applyUiSettingsPatch({ options });
+          refreshApplicationMenu();
+          sendAppMenuCommand({ type: "toggle-tag-filter", tag });
+        }
+      }))
+    : [{ label: "No tags", enabled: false }];
+
+  const setOptions = (options: PlaylistOptions, command: AppMenuCommand) => {
+    applyUiSettingsPatch({ options });
+    refreshApplicationMenu();
+    sendAppMenuCommand(command);
+  };
+
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: "File",
+      submenu: [
+        { label: "Open Folder", accelerator: "CmdOrCtrl+O", click: () => sendAppMenuCommand({ type: "choose-library-root" }) },
+        { label: "Rescan Folder", accelerator: "CmdOrCtrl+R", click: () => sendAppMenuCommand({ type: "rescan-library" }) },
+        { type: "separator" },
+        { label: "Quit", role: "quit" }
+      ]
+    },
+    {
+      label: "Operation",
+      submenu: [
+        { label: "Play/Pause", click: () => sendAppMenuCommand({ type: "toggle-play" }) },
+        { label: "Next", click: () => sendAppMenuCommand({ type: "next" }) },
+        { label: "Previous", click: () => sendAppMenuCommand({ type: "previous" }) },
+        { type: "separator" },
+        { label: "Tag", submenu: tagItems },
+        {
+          label: "Rate",
+          submenu: [0, 1, 2, 3, 4, 5].map((rating) => ({
+            label: rating === 0 ? "0 stars" : `${rating} ${"★".repeat(rating)}`,
+            click: () => sendAppMenuCommand({ type: "set-rating", rating })
+          }))
+        }
+      ]
+    },
+    {
+      label: "View",
+      submenu: [
+        {
+          label: "Show Info Bar",
+          type: "checkbox",
+          checked: settings.detailsVisible,
+          click: () => {
+            const visible = !settings.detailsVisible;
+            applyUiSettingsPatch({ detailsVisible: visible });
+            refreshApplicationMenu();
+            sendAppMenuCommand({ type: "set-details-visible", visible });
+          }
+        },
+        {
+          label: "Show Playlist",
+          type: "checkbox",
+          checked: settings.playlistVisible,
+          click: () => {
+            const visible = !settings.playlistVisible;
+            setPlaylistVisibility(visible);
+            refreshApplicationMenu();
+            sendAppMenuCommand({ type: "set-playlist-visible", visible });
+          }
+        },
+        {
+          label: "Sort Playlist",
+          submenu: [
+            ["playlist", "Playlist Order"],
+            ["filename", "Filename"],
+            ["created", "Created Time"],
+            ["random", "Random"]
+          ].map(([sort, label]) => ({
+            label,
+            type: "radio" as const,
+            checked: settings.options.sort === sort,
+            click: () =>
+              setOptions({ ...settings.options, sort: sort as SortMode }, { type: "set-sort", sort: sort as SortMode })
+          }))
+        },
+        {
+          label: "Filter Playlist",
+          submenu: [
+            {
+              label: "Minimum Rating",
+              submenu: [0, 1, 2, 3, 4, 5].map((ratingMin) => ({
+                label: ratingMin === 0 ? "Any rating" : `${ratingMin}+ stars`,
+                type: "radio" as const,
+                checked: settings.options.ratingMin === ratingMin,
+                click: () =>
+                  setOptions(
+                    { ...settings.options, ratingMin },
+                    { type: "set-rating-filter", ratingMin }
+                  )
+              }))
+            },
+            { label: "Tags", submenu: filterTagItems },
+            {
+              label: "Untagged Only",
+              type: "checkbox",
+              checked: settings.options.untaggedOnly,
+              click: () => {
+                const enabled = !settings.options.untaggedOnly;
+                setOptions(
+                  { ...settings.options, tags: [], untaggedOnly: enabled },
+                  { type: "set-untagged-filter", enabled }
+                );
+              }
+            }
+          ]
+        },
+        {
+          label: "Loop Playlist",
+          type: "checkbox",
+          checked: settings.loopPlaylist,
+          click: () => {
+            const enabled = !settings.loopPlaylist;
+            applyUiSettingsPatch({ loopPlaylist: enabled });
+            refreshApplicationMenu();
+            sendAppMenuCommand({ type: "set-loop-playlist", enabled });
+          }
+        }
+      ]
+    }
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 function createWindow() {
@@ -328,7 +517,7 @@ function createWindow() {
     minWidth: 360,
     minHeight: 240,
     titleBarStyle: "default",
-    autoHideMenuBar: true,
+    autoHideMenuBar: false,
     backgroundColor: "#0f172a",
     icon: appIconPath,
     webPreferences: {
@@ -338,11 +527,6 @@ function createWindow() {
     }
   });
   startupWindowBounds = null;
-
-  if (process.platform !== "darwin") {
-    mainWindow.setMenu(null);
-    Menu.setApplicationMenu(null);
-  }
 
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
@@ -419,6 +603,7 @@ function setRootAndPersist(root: string) {
   config.lastRoot = root;
   saveConfig(config);
   syncRootSettingsToRuntime();
+  refreshApplicationMenu();
 }
 
 function applyInitialTarget(target: CliTarget) {
@@ -559,6 +744,7 @@ app.whenReady().then(() => {
     syncRootSettingsToRuntime();
   }
 
+  refreshApplicationMenu();
   createWindow();
   registerMediaShortcuts();
 
@@ -616,7 +802,9 @@ ipcMain.handle("library:set-root", (_event, root: string) => {
 });
 
 ipcMain.handle("library:scan", () => {
-  return library.scanLibrary();
+  const result = library.scanLibrary();
+  refreshApplicationMenu();
+  return result;
 });
 
 ipcMain.handle("playlist:get", (_event, options: PlaylistRequest) => {
@@ -637,10 +825,12 @@ ipcMain.handle("file:set-last-played", (_event, fileId: number) => {
 
 ipcMain.handle("file:toggle-tag", (_event, payload: { fileId: number; tagName: string }) => {
   library.toggleTag(payload.fileId, payload.tagName);
+  refreshApplicationMenu();
 });
 
 ipcMain.handle("tag:add", (_event, tagName: string) => {
   library.addTag(tagName);
+  refreshApplicationMenu();
 });
 
 ipcMain.handle("tag:top", () => {
@@ -656,17 +846,14 @@ ipcMain.handle("playlist:save-order", (_event, fileIds: number[]) => {
 });
 
 ipcMain.handle("window:playlist-visible", (_event, visible: boolean) => {
-  playlistVisible = visible;
-  config.playlistVisible = visible;
-  saveConfig(config);
-  library.setSetting(SETTINGS_KEYS.playlistVisible, visible ? "1" : "0");
-  updateWindowForPlaylist();
-  scheduleWindowBoundsSave();
+  setPlaylistVisibility(visible);
+  refreshApplicationMenu();
   return buildAppState();
 });
 
 ipcMain.handle("settings:update", (_event, patch: UiSettingsPatch) => {
   applyUiSettingsPatch(patch);
+  refreshApplicationMenu();
   return buildAppState();
 });
 

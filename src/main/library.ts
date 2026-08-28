@@ -407,13 +407,17 @@ function buildPlaylistQueryParts(options: PlaylistRequest) {
   }
 
   const tags = options.tags ?? [];
-  let havingClause = "";
+  const havingConditions: string[] = [];
   const tagParams: Array<string | number> = [];
-  if (tags.length > 0) {
+  if (options.untaggedOnly) {
+    havingConditions.push("COUNT(ft.tag_id) = 0");
+  } else if (tags.length > 0) {
     const placeholders = tags.map(() => "?").join(", ");
-    havingClause = `HAVING COUNT(DISTINCT CASE WHEN t.name IN (${placeholders}) THEN t.name END) = ?`;
+    havingConditions.push(`COUNT(DISTINCT CASE WHEN t.name IN (${placeholders}) THEN t.name END) = ?`);
     tagParams.push(...tags, tags.length);
   }
+
+  const havingClause = havingConditions.length > 0 ? `HAVING ${havingConditions.join(" AND ")}` : "";
 
   const { orderBy, orderParams } = buildOrderBy(options);
 
