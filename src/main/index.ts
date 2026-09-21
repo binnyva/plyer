@@ -16,9 +16,11 @@ import { Readable } from "stream";
 import { LibraryManager, inspectPath, isVideoFile } from "./library";
 import { loadConfig, saveConfig } from "./config";
 import { thumbnailEvents } from "./thumbnail";
+import { DEFAULT_KEYBOARD_SHORTCUTS } from "../shared/types";
 import type {
   AppMenuCommand,
   AppState,
+  KeyboardShortcuts,
   PendingOpenInfo,
   PlaylistOptions,
   PlaylistRequest,
@@ -171,6 +173,32 @@ function parseTags(value: string | null): string[] {
   }
 }
 
+function readKeyboardShortcuts(source: unknown = config.keyboardShortcuts): KeyboardShortcuts {
+  const saved = source && typeof source === "object" ? (source as Partial<KeyboardShortcuts>) : undefined;
+  const shortcut = (value: unknown, fallback: string) =>
+    typeof value === "string" && value.trim() ? value.trim() : fallback;
+
+  return {
+    togglePlay: shortcut(saved?.togglePlay, DEFAULT_KEYBOARD_SHORTCUTS.togglePlay),
+    next: shortcut(saved?.next, DEFAULT_KEYBOARD_SHORTCUTS.next),
+    previous: shortcut(saved?.previous, DEFAULT_KEYBOARD_SHORTCUTS.previous),
+    rate0: shortcut(saved?.rate0, DEFAULT_KEYBOARD_SHORTCUTS.rate0),
+    rate1: shortcut(saved?.rate1, DEFAULT_KEYBOARD_SHORTCUTS.rate1),
+    rate2: shortcut(saved?.rate2, DEFAULT_KEYBOARD_SHORTCUTS.rate2),
+    rate3: shortcut(saved?.rate3, DEFAULT_KEYBOARD_SHORTCUTS.rate3),
+    rate4: shortcut(saved?.rate4, DEFAULT_KEYBOARD_SHORTCUTS.rate4),
+    rate5: shortcut(saved?.rate5, DEFAULT_KEYBOARD_SHORTCUTS.rate5),
+    togglePlaylist: shortcut(saved?.togglePlaylist, DEFAULT_KEYBOARD_SHORTCUTS.togglePlaylist),
+    toggleMuted: shortcut(saved?.toggleMuted, DEFAULT_KEYBOARD_SHORTCUTS.toggleMuted),
+    openTagMenu: shortcut(saved?.openTagMenu, DEFAULT_KEYBOARD_SHORTCUTS.openTagMenu)
+  };
+}
+
+function persistKeyboardShortcuts(shortcuts: KeyboardShortcuts) {
+  config.keyboardShortcuts = shortcuts;
+  saveConfig(config);
+}
+
 function parseWindowBounds(value: string | null): WindowBounds | null {
   if (!value) return null;
   try {
@@ -283,6 +311,7 @@ function buildAppState(): AppState {
     muted: settings.muted,
     loopPlaylist: settings.loopPlaylist,
     detailsVisible: settings.detailsVisible,
+    keyboardShortcuts: readKeyboardShortcuts(),
     options: settings.options,
     currentMediaPath: toAbsoluteMediaPath(settings.currentMediaPath)
   };
@@ -305,6 +334,13 @@ function syncRootSettingsToRuntime() {
 }
 
 function applyUiSettingsPatch(patch: UiSettingsPatch) {
+  if (patch.keyboardShortcuts) {
+    persistKeyboardShortcuts(readKeyboardShortcuts({
+      ...readKeyboardShortcuts(),
+      ...patch.keyboardShortcuts
+    }));
+  }
+
   if (typeof patch.volume === "number" && Number.isFinite(patch.volume)) {
     library.setSetting(SETTINGS_KEYS.volume, String(Math.max(0, Math.min(1, patch.volume))));
   }
@@ -357,6 +393,7 @@ function refreshApplicationMenu() {
   if (!app.isReady()) return;
 
   const settings = readRootSettings();
+  const shortcuts = readKeyboardShortcuts();
   const tags = library.getTopTags();
   const tagItems: MenuItemConstructorOptions[] = tags.length
     ? tags.map((tag) => ({
@@ -403,15 +440,42 @@ function refreshApplicationMenu() {
     {
       label: "Operation",
       submenu: [
-        { label: "Play/Pause", click: () => sendAppMenuCommand({ type: "toggle-play" }) },
-        { label: "Next", click: () => sendAppMenuCommand({ type: "next" }) },
-        { label: "Previous", click: () => sendAppMenuCommand({ type: "previous" }) },
+        {
+          label: "Play/Pause",
+          accelerator: shortcuts.togglePlay,
+          click: () => sendAppMenuCommand({ type: "toggle-play" })
+        },
+        { label: "Next", accelerator: shortcuts.next, click: () => sendAppMenuCommand({ type: "next" }) },
+        {
+          label: "Previous",
+          accelerator: shortcuts.previous,
+          click: () => sendAppMenuCommand({ type: "previous" })
+        },
+        {
+          label: "Move Current Video to Trash",
+          accelerator: "CmdOrCtrl+Backspace",
+          click: () => sendAppMenuCommand({ type: "delete-current-video" })
+        },
         { type: "separator" },
+        {
+          label: "Open Tag Menu",
+          accelerator: shortcuts.openTagMenu,
+          click: () => sendAppMenuCommand({ type: "open-tag-menu" })
+        },
+        {
+          label: "Edit Note…",
+          accelerator: "Cmd+N",
+          click: () => sendAppMenuCommand({ type: "edit-note" })
+        },
         { label: "Tag", submenu: tagItems },
         {
           label: "Rate",
           submenu: [0, 1, 2, 3, 4, 5].map((rating) => ({
             label: rating === 0 ? "0 stars" : `${rating} ${"★".repeat(rating)}`,
+            accelerator: shortcuts[`rate${rating}` as keyof Pick<
+              KeyboardShortcuts,
+              "rate0" | "rate1" | "rate2" | "rate3" | "rate4" | "rate5"
+            >],
             click: () => sendAppMenuCommand({ type: "set-rating", rating })
           }))
         }
@@ -434,12 +498,25 @@ function refreshApplicationMenu() {
         {
           label: "Show Playlist",
           type: "checkbox",
+          accelerator: shortcuts.togglePlaylist,
           checked: settings.playlistVisible,
           click: () => {
             const visible = !settings.playlistVisible;
             setPlaylistVisibility(visible);
             refreshApplicationMenu();
             sendAppMenuCommand({ type: "set-playlist-visible", visible });
+          }
+        },
+        {
+          label: "Mute",
+          type: "checkbox",
+          checked: settings.muted,
+          accelerator: shortcuts.toggleMuted,
+          click: () => {
+            const muted = !settings.muted;
+            applyUiSettingsPatch({ muted });
+            refreshApplicationMenu();
+            sendAppMenuCommand({ type: "set-muted", muted });
           }
         },
         {
@@ -664,6 +741,8 @@ app.on("open-file", (event, filePath) => {
 });
 
 app.whenReady().then(() => {
+  persistKeyboardShortcuts(readKeyboardShortcuts());
+
   if (process.platform === "darwin" && appIconPath) {
     app.dock.setIcon(appIconPath);
   }
@@ -815,12 +894,48 @@ ipcMain.handle("file:set-rating", (_event, payload: { fileId: number; rating: nu
   library.setRating(payload.fileId, payload.rating);
 });
 
+ipcMain.handle("file:set-note", (_event, payload: { fileId: number; note: string }) => {
+  if (!Number.isInteger(payload?.fileId) || typeof payload?.note !== "string") return;
+  library.setNote(payload.fileId, payload.note);
+});
+
 ipcMain.handle("file:set-duration", (_event, payload: { fileId: number; durationMs: number }) => {
   library.setDuration(payload.fileId, payload.durationMs);
 });
 
 ipcMain.handle("file:set-last-played", (_event, fileId: number) => {
   library.setLastPlayed(fileId);
+});
+
+ipcMain.handle("file:trash", async (_event, fileId: number) => {
+  const file = library.getFileForDeletion(fileId);
+  if (!file) {
+    throw new Error("The selected video is no longer available in this library.");
+  }
+
+  const dialogOptions = {
+    type: "warning" as const,
+    buttons: ["Cancel", "Move to Trash"],
+    defaultId: 0,
+    cancelId: 0,
+    title: "Move video to Trash?",
+    message: `Move \"${file.name}\" to the Trash?`,
+    detail: "The video file will be moved to the operating system Trash and removed from this library."
+  };
+  const confirmation = mainWindow
+    ? await dialog.showMessageBox(mainWindow, dialogOptions)
+    : await dialog.showMessageBox(dialogOptions);
+  if (confirmation.response !== 1) return false;
+
+  try {
+    await shell.trashItem(file.absolutePath);
+  } catch {
+    throw new Error(`Could not move \"${file.name}\" to the Trash.`);
+  }
+
+  library.removeFile(file.id);
+  refreshApplicationMenu();
+  return true;
 });
 
 ipcMain.handle("file:toggle-tag", (_event, payload: { fileId: number; tagName: string }) => {

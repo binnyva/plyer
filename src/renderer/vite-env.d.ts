@@ -13,6 +13,7 @@ declare global {
       scanLibrary: () => Promise<{ added: number; removed: number; updated: number }>;
       getPlaylist: (options: PlaylistRequest) => Promise<PlaylistResponse>;
       setRating: (fileId: number, rating: number) => Promise<void>;
+      setNote: (fileId: number, note: string) => Promise<void>;
       toggleTag: (fileId: number, tagName: string) => Promise<void>;
       addTag: (tagName: string) => Promise<void>;
       getTopTags: () => Promise<string[]>;
@@ -20,6 +21,7 @@ declare global {
       saveOrder: (fileIds: number[]) => Promise<void>;
       setDuration: (fileId: number, durationMs: number) => Promise<void>;
       setLastPlayed: (fileId: number) => Promise<void>;
+      trashFile: (fileId: number) => Promise<boolean>;
       onPendingOpen: (cb: (info: PendingOpenInfo) => void) => () => void;
       onMediaControl: (cb: (action: "toggle" | "next" | "previous") => void) => () => void;
       onAppMenuCommand: (cb: (command: AppMenuCommand) => void) => () => void;

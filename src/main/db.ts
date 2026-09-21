@@ -24,6 +24,7 @@ export function openDatabase(root: string): DB {
       mtime INTEGER DEFAULT 0,
       created_ms INTEGER DEFAULT 0,
       rating INTEGER DEFAULT 0,
+      note TEXT,
       meta TEXT,
       added_on INTEGER DEFAULT (strftime('%s','now') * 1000),
       last_played INTEGER,
@@ -78,6 +79,13 @@ export function openDatabase(root: string): DB {
     CREATE INDEX IF NOT EXISTS idx_file_playlists_order ON file_playlists(playlist_id, order_index);
     CREATE INDEX IF NOT EXISTS idx_file_tags_file ON file_tags(file_id);
   `);
+
+  // `CREATE TABLE IF NOT EXISTS` does not evolve databases created by older
+  // versions, so add this field explicitly when opening an existing library.
+  const fileColumns = db.prepare("PRAGMA table_info(files)").all() as { name: string }[];
+  if (!fileColumns.some((column) => column.name === "note")) {
+    db.exec("ALTER TABLE files ADD COLUMN note TEXT");
+  }
 
   const existing = db.prepare("SELECT id FROM playlists WHERE name = ?").get("Library");
   if (!existing) {

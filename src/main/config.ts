@@ -1,10 +1,12 @@
 import { app } from "electron";
 import fs from "fs";
 import path from "path";
+import type { KeyboardShortcuts } from "../shared/types";
 
 export interface AppConfig {
   lastRoot?: string;
   playlistVisible?: boolean;
+  keyboardShortcuts?: Partial<KeyboardShortcuts>;
 }
 
 const configFile = () => path.join(app.getPath("userData"), "config.json");

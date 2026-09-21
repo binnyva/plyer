@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { NOTE_MAX_LENGTH } from "@shared/types";
 import type { AppMenuCommand, AppState, FileItem, PendingOpenInfo, PlaylistOptions, SortMode } from "@shared/types";
 
 const SORT_LABELS: Record<SortMode, string> = {
@@ -69,6 +70,10 @@ export default function App() {
   const [quickTagOptions, setQuickTagOptions] = useState<string[]>([]);
   const [tagMenuMode, setTagMenuMode] = useState<"default" | "quick">("default");
   const [tagDraft, setTagDraft] = useState("");
+  const [selectedTagIndex, setSelectedTagIndex] = useState(0);
+  const [noteEditorOpen, setNoteEditorOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [isSavingNote, setIsSavingNote] = useState(false);
   const [tagFilterQuery, setTagFilterQuery] = useState("");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -77,7 +82,22 @@ export default function App() {
   const tagButtonRef = useRef<HTMLButtonElement>(null);
   const ratingButtonRef = useRef<HTMLButtonElement>(null);
   const tagInputRef = useRef<HTMLInputElement>(null);
+  const noteInputRef = useRef<HTMLTextAreaElement>(null);
   const appMenuCommandHandlerRef = useRef<(command: AppMenuCommand) => void>(() => undefined);
+  const scanAndRefreshRef = useRef<
+    (restorePath?: string | null, optionsOverride?: PlaylistOptions) => Promise<void>
+  >(() => Promise.resolve());
+  const loadPlaylistPageRef = useRef<(offset: number, reset: boolean) => Promise<unknown>>(() => Promise.resolve());
+  const playByAbsolutePathRef = useRef<(targetPath: string) => Promise<void>>(() => Promise.resolve());
+  const playbackControlsRef = useRef<{
+    toggle: () => void;
+    next: () => Promise<void>;
+    previous: () => void;
+  }>({
+    toggle: () => undefined,
+    next: () => Promise.resolve(),
+    previous: () => undefined
+  });
 
   const applyAppState = (state: AppState) => {
     setLibraryRoot(state.libraryRoot);
@@ -103,6 +123,8 @@ export default function App() {
       (retainedCurrentItem?.id === currentId ? retainedCurrentItem : null),
     [items, currentId, retainedCurrentItem]
   );
+  const currentMediaId = currentItem?.id;
+  const currentMediaFileUrl = currentItem?.fileUrl;
   const isRated = (currentItem?.rating ?? 0) > 0;
   const filteredPlayerTags = useMemo(() => {
     const query = tagDraft.trim().toLowerCase();
@@ -110,11 +132,12 @@ export default function App() {
     return topTags.filter((tag) => tag.toLowerCase().includes(query));
   }, [topTags, tagDraft]);
   const playerTagOptions = useMemo(() => {
-    if (tagMenuMode === "quick") {
-      return [...quickTagOptions].sort(compareTagNames);
-    }
-    return filteredPlayerTags;
-  }, [filteredPlayerTags, quickTagOptions, tagMenuMode]);
+    const tags = tagMenuMode === "quick" ? quickTagOptions : filteredPlayerTags;
+    return [...tags].sort((a, b) => {
+      const activeDifference = Number(currentItem?.tags.includes(b)) - Number(currentItem?.tags.includes(a));
+      return activeDifference || compareTagNames(a, b);
+    });
+  }, [currentItem?.tags, filteredPlayerTags, quickTagOptions, tagMenuMode]);
   const filteredTags = useMemo(() => {
     const query = tagFilterQuery.trim().toLowerCase();
     if (!query) return topTags;
@@ -147,18 +170,18 @@ export default function App() {
     window.api.getAppState().then((state) => {
       applyAppState(state);
       if (state.libraryRoot) {
-        scanAndRefresh(state.currentMediaPath, state.options);
+        void scanAndRefreshRef.current(state.currentMediaPath, state.options);
       }
     });
 
     const unsubscribePending = window.api.onPendingOpen((info) => setPendingOpen(info));
     const unsubscribeMedia = window.api.onMediaControl((action) => {
       if (action === "toggle") {
-        togglePlay();
+        playbackControlsRef.current.toggle();
       } else if (action === "next") {
-        playNext();
+        void playbackControlsRef.current.next();
       } else if (action === "previous") {
-        playPrev();
+        playbackControlsRef.current.previous();
       }
     });
     const unsubscribeMenu = window.api.onAppMenuCommand((command) => appMenuCommandHandlerRef.current(command));
@@ -191,12 +214,12 @@ export default function App() {
     restoreMediaPathRef.current = null;
 
     (async () => {
-      await loadPlaylistPage(0, true);
+      await loadPlaylistPageRef.current(0, true);
       if (restorePath) {
-        await playByAbsolutePath(restorePath);
+        await playByAbsolutePathRef.current(restorePath);
       }
     })();
-  }, [libraryRoot, options.sort, options.ratingMin, options.tags.join("|"), options.untaggedOnly, randomSeed]);
+  }, [libraryRoot, options, randomSeed]);
 
   useEffect(() => {
     if (!currentId && items.length) {
@@ -212,12 +235,12 @@ export default function App() {
   }, [externalFile]);
 
   useEffect(() => {
-    if (!currentItem || !videoRef.current) return;
+    if (!currentMediaId || !currentMediaFileUrl || !videoRef.current) return;
     if (externalFile) return;
 
     videoRef.current.load();
     videoRef.current.play().catch(() => null);
-  }, [currentItem?.id]);
+  }, [currentMediaId, currentMediaFileUrl, externalFile]);
 
   useEffect(() => {
     setCurrentTime(0);
@@ -242,10 +265,10 @@ export default function App() {
       });
       navigator.mediaSession.setActionHandler("play", () => videoRef.current?.play().catch(() => null));
       navigator.mediaSession.setActionHandler("pause", () => videoRef.current?.pause());
-      navigator.mediaSession.setActionHandler("nexttrack", () => playNext());
-      navigator.mediaSession.setActionHandler("previoustrack", () => playPrev());
+      navigator.mediaSession.setActionHandler("nexttrack", () => playbackControlsRef.current.next());
+      navigator.mediaSession.setActionHandler("previoustrack", () => playbackControlsRef.current.previous());
     }
-  }, [currentItem?.id, libraryRoot, externalFile]);
+  }, [currentItem, libraryRoot, externalFile]);
 
   useEffect(() => {
     if (!tagMenuOpen && !filterMenuOpen) return;
@@ -258,12 +281,34 @@ export default function App() {
   }, [tagMenuOpen]);
 
   useEffect(() => {
+    if (!noteEditorOpen) return;
+    requestAnimationFrame(() => noteInputRef.current?.focus());
+  }, [noteEditorOpen]);
+
+  useEffect(() => {
+    if (!noteEditorOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isSavingNote) {
+        setNoteEditorOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [noteEditorOpen, isSavingNote]);
+
+  useEffect(() => {
     if (!tagMenuOpen) {
       setTagDraft("");
       setQuickTagOptions([]);
       setTagMenuMode("default");
+      setSelectedTagIndex(0);
     }
   }, [tagMenuOpen]);
+
+  useEffect(() => {
+    if (selectedTagIndex < playerTagOptions.length) return;
+    setSelectedTagIndex(Math.max(0, playerTagOptions.length - 1));
+  }, [playerTagOptions.length, selectedTagIndex]);
 
   useEffect(() => {
     if (!filterMenuOpen) {
@@ -321,23 +366,13 @@ export default function App() {
       });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [
-    libraryRoot,
-    volume,
-    muted,
-    loopPlaylist,
-    detailsVisible,
-    options.sort,
-    options.ratingMin,
-    options.tags.join("|"),
-    options.untaggedOnly
-  ]);
+  }, [libraryRoot, volume, muted, loopPlaylist, detailsVisible, options]);
 
   useEffect(() => {
     if (!libraryRoot || !settingsHydratedRef.current) return;
     const mediaPath = externalFile ? null : currentItem?.path ?? null;
     window.api.updateSettings({ currentMediaPath: mediaPath });
-  }, [libraryRoot, externalFile?.path, currentItem?.id]);
+  }, [libraryRoot, externalFile, currentItem]);
 
   const buildPlaylistRequest = (offset: number, limit = PAGE_SIZE, optionsOverride?: PlaylistOptions) => {
     const requestOptions = optionsOverride ?? options;
@@ -582,6 +617,17 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    scanAndRefreshRef.current = scanAndRefresh;
+    loadPlaylistPageRef.current = loadPlaylistPage;
+    playByAbsolutePathRef.current = playByAbsolutePath;
+    playbackControlsRef.current = {
+      toggle: togglePlay,
+      next: playNext,
+      previous: playPrev
+    };
+  });
+
   const handleTimeUpdate = () => {
     if (!videoRef.current) return;
     setCurrentTime(videoRef.current.currentTime);
@@ -628,6 +674,31 @@ export default function App() {
     if (libraryRoot) refreshLoadedPlaylist(targetId, { ...currentItem, rating: value });
   };
 
+  const handleDeleteCurrentVideo = async () => {
+    if (!currentItem || externalFile) return;
+
+    const itemToDelete = currentItem;
+    try {
+      const deleted = await window.api.trashFile(itemToDelete.id);
+      if (!deleted) return;
+
+      const currentIndex = itemsRef.current.findIndex((item) => item.id === itemToDelete.id);
+      const successorId =
+        itemsRef.current[currentIndex + 1]?.id ?? itemsRef.current[currentIndex - 1]?.id ?? null;
+      setRetainedCurrentItem(null);
+      setCurrentId(successorId);
+      await refreshLoadedPlaylist(successorId ?? undefined);
+      setStatus(`Moved \"${itemToDelete.name}\" to Trash.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not move the video to Trash.";
+      setStatus(message);
+    }
+  };
+
+  const focusTagInput = () => {
+    requestAnimationFrame(() => tagInputRef.current?.focus());
+  };
+
   const handleTagToggle = async (tag: string) => {
     if (!currentItem) return;
     const targetId = currentItem.id;
@@ -639,6 +710,25 @@ export default function App() {
     if (libraryRoot) refreshLoadedPlaylist(targetId, { ...currentItem, tags });
   };
 
+  const handleTagApply = async (tag: string, keepMenuOpen: boolean) => {
+    if (!currentItem) return;
+    const targetId = currentItem.id;
+    const isAlreadyApplied = currentItem.tags.includes(tag);
+
+    if (!isAlreadyApplied) {
+      await window.api.toggleTag(targetId, tag);
+      if (libraryRoot) refreshLoadedPlaylist(targetId, { ...currentItem, tags: [...currentItem.tags, tag] });
+    }
+
+    if (keepMenuOpen) {
+      setTagDraft("");
+      setSelectedTagIndex(0);
+      focusTagInput();
+    } else {
+      setTagMenuOpen(false);
+    }
+  };
+
   const handleTagButtonClick = () => {
     setTagMenuOpen((prev) => {
       if (tagMenuMode === "quick") {
@@ -647,6 +737,7 @@ export default function App() {
       return !prev;
     });
     setTagMenuMode("default");
+    setSelectedTagIndex(0);
     setRatingMenuOpen(false);
   };
 
@@ -656,23 +747,69 @@ export default function App() {
     const tags = await window.api.getMostUsedTags(5);
     setQuickTagOptions(tags);
     setTagMenuMode("quick");
+    setSelectedTagIndex(0);
     setTagMenuOpen(true);
     setRatingMenuOpen(false);
   };
 
-  const handleAddTag = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleAddTag = async () => {
     const tag = tagDraft.trim();
-    if (!tag || !currentItem) return;
-    const targetId = currentItem.id;
-    await window.api.toggleTag(targetId, tag);
-    setTagMenuOpen(false);
-    setTagDraft("");
-    const tags = currentItem.tags.includes(tag)
-      ? currentItem.tags.filter((currentTag) => currentTag !== tag)
-      : [...currentItem.tags, tag];
-    if (libraryRoot) refreshLoadedPlaylist(targetId, { ...currentItem, tags });
+    if (!tag) return;
+    await handleTagApply(tag, false);
     window.api.getTopTags().then((tags) => setTopTags(tags));
+  };
+
+  const handleTagInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    const optionCount = playerTagOptions.length;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (optionCount === 0) return;
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      setSelectedTagIndex((index) => (index + direction + optionCount) % optionCount);
+      return;
+    }
+
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+
+    if (event.metaKey || event.ctrlKey) {
+      void handleAddTag();
+      return;
+    }
+
+    const selectedTag = playerTagOptions[selectedTagIndex];
+    if (!selectedTag) return;
+    if (event.shiftKey) {
+      void handleTagApply(selectedTag, true);
+      return;
+    }
+    void handleTagToggle(selectedTag);
+  };
+
+  const openNoteEditor = () => {
+    if (!currentItem || externalFile) return;
+    setNoteDraft(currentItem.note);
+    setTagMenuOpen(false);
+    setRatingMenuOpen(false);
+    setNoteEditorOpen(true);
+  };
+
+  const handleSaveNote = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!currentItem || externalFile || isSavingNote) return;
+
+    const targetId = currentItem.id;
+    const note = noteDraft.slice(0, NOTE_MAX_LENGTH);
+    setIsSavingNote(true);
+    try {
+      await window.api.setNote(targetId, note);
+      if (libraryRoot) {
+        await refreshLoadedPlaylist(targetId, { ...currentItem, note });
+      }
+      setNoteEditorOpen(false);
+    } finally {
+      setIsSavingNote(false);
+    }
   };
 
   const handleFilterTag = (tag: string) => {
@@ -736,11 +873,27 @@ export default function App() {
       case "previous":
         playPrev();
         break;
+      case "delete-current-video":
+        void handleDeleteCurrentVideo();
+        break;
       case "set-rating":
         void handleRating(command.rating);
         break;
       case "toggle-tag":
         void handleTagToggle(command.tag);
+        break;
+      case "open-tag-menu":
+        if (currentItem && !externalFile) {
+          setTagMenuMode("default");
+          setTagMenuOpen(true);
+          setRatingMenuOpen(false);
+        }
+        break;
+      case "edit-note":
+        openNoteEditor();
+        break;
+      case "set-muted":
+        setMuted(command.muted);
         break;
       case "set-details-visible":
         setDetailsVisible(command.visible);
@@ -798,7 +951,7 @@ export default function App() {
                 <video
                   ref={videoRef}
                   className="h-full w-full object-contain"
-                  src={externalFile ? externalFile.url : currentItem?.fileUrl ?? ""}
+                  src={externalFile ? externalFile.url : currentMediaFileUrl ?? ""}
                   onClick={togglePlay}
                   onTimeUpdate={handleTimeUpdate}
                   onLoadedMetadata={handleLoadedMetadata}
@@ -891,7 +1044,12 @@ export default function App() {
                         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">
                           Tags
                         </p>
-                        <div className="mt-2 max-h-48 space-y-1 overflow-y-auto pr-1">
+                        <div
+                          id="player-tag-options"
+                          className="mt-2 max-h-48 space-y-1 overflow-y-auto pr-1"
+                          role="listbox"
+                          aria-label="Tags"
+                        >
                           {tagMenuMode === "quick" && playerTagOptions.length === 0 && (
                             <span className="block rounded-xl bg-slatewash px-3 py-2 text-xs text-ink-500 dark:bg-white/5 dark:text-slate-400">
                               No tags yet
@@ -907,17 +1065,28 @@ export default function App() {
                               No matching tags
                             </span>
                           )}
-                          {playerTagOptions.map((tag) => {
+                          {playerTagOptions.map((tag, index) => {
                             const active = currentItem.tags.includes(tag);
+                            const selected = index === selectedTagIndex;
                             return (
                               <button
                                 key={tag}
+                                id={`player-tag-option-${index}`}
                                 className={`flex w-full items-center justify-between rounded-xl px-3 py-1.5 text-left text-sm transition ${
                                   active
                                     ? "bg-ocean/10 text-ocean"
                                     : "bg-slatewash text-ink-700 dark:bg-white/5 dark:text-white"
-                                }`}
-                                onClick={() => handleTagToggle(tag)}
+                                } ${selected ? "ring-2 ring-ocean ring-offset-1 dark:ring-offset-slate-900" : ""}`}
+                                role="option"
+                                aria-selected={selected}
+                                aria-pressed={active}
+                                onClick={(event) => {
+                                  if (event.shiftKey) {
+                                    void handleTagApply(tag, true);
+                                    return;
+                                  }
+                                  void handleTagToggle(tag);
+                                }}
                               >
                                 <span>{tag}</span>
                                 <span>{active ? "✓" : ""}</span>
@@ -925,16 +1094,35 @@ export default function App() {
                             );
                           })}
                         </div>
-                        <form className="mt-3 flex gap-2" onSubmit={handleAddTag}>
+                        <form
+                          className="mt-3 flex gap-2"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void handleAddTag();
+                          }}
+                        >
                           <input
                             className="w-full rounded-xl border border-mist bg-white px-2 py-1 text-xs text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
                             name="tag"
                             placeholder="Add tag"
                             ref={tagInputRef}
                             value={tagDraft}
-                            onChange={(event) => setTagDraft(event.target.value)}
+                            role="combobox"
+                            aria-autocomplete="list"
+                            aria-controls="player-tag-options"
+                            aria-activedescendant={
+                              playerTagOptions[selectedTagIndex] ? `player-tag-option-${selectedTagIndex}` : undefined
+                            }
+                            onChange={(event) => {
+                              setTagDraft(event.target.value);
+                              setSelectedTagIndex(0);
+                            }}
+                            onKeyDown={handleTagInputKeyDown}
                           />
-                          <button className="rounded-xl bg-ink-900 px-3 py-1 text-xs font-semibold text-white">
+                          <button
+                            className="rounded-xl bg-ink-900 px-3 py-1 text-xs font-semibold text-white"
+                            title="Apply the exact typed tag (Cmd/Ctrl+Enter)"
+                          >
                             Add
                           </button>
                         </form>
@@ -1286,6 +1474,18 @@ export default function App() {
           onPlay={() => resolvePending("play")}
         />
       )}
+
+      {noteEditorOpen && currentItem && (
+        <NoteEditorModal
+          fileName={currentItem.name}
+          note={noteDraft}
+          isSaving={isSavingNote}
+          inputRef={noteInputRef}
+          onChange={(nextNote) => setNoteDraft(nextNote.slice(0, NOTE_MAX_LENGTH))}
+          onCancel={() => !isSavingNote && setNoteEditorOpen(false)}
+          onSubmit={handleSaveNote}
+        />
+      )}
     </div>
   );
 }
@@ -1325,6 +1525,66 @@ function RatingStars({
           </span>
         );
       })}
+    </div>
+  );
+}
+
+function NoteEditorModal({
+  fileName,
+  note,
+  isSaving,
+  inputRef,
+  onChange,
+  onCancel,
+  onSubmit
+}: {
+  fileName: string;
+  note: string;
+  isSaving: boolean;
+  inputRef: React.RefObject<HTMLTextAreaElement>;
+  onChange: (note: string) => void;
+  onCancel: () => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/50 px-4">
+      <form
+        className="w-full max-w-xl rounded-3xl border border-white/20 bg-white p-6 shadow-soft dark:border-white/10 dark:bg-slate-900"
+        onSubmit={onSubmit}
+      >
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-600 dark:text-slate-300">Note</p>
+        <h3 className="mt-2 truncate text-xl font-display text-ink-900 dark:text-white">{fileName}</h3>
+        <textarea
+          ref={inputRef}
+          className="mt-4 min-h-48 w-full resize-y rounded-2xl border border-mist bg-white p-3 text-sm text-ink-700 outline-none transition focus:border-ocean dark:border-white/10 dark:bg-white/10 dark:text-white"
+          value={note}
+          onChange={(event) => onChange(event.target.value)}
+          maxLength={NOTE_MAX_LENGTH}
+          placeholder="Add a note about this video"
+          disabled={isSaving}
+        />
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <span className="text-xs text-ink-500 dark:text-slate-400">
+            {note.length}/{NOTE_MAX_LENGTH} characters
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded-xl border border-mist bg-white px-4 py-2 text-sm font-semibold text-ink-700 transition hover:bg-slatewash disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/10 dark:text-white dark:hover:bg-white/20"
+              onClick={onCancel}
+              disabled={isSaving}
+            >
+              Cancel
+            </button>
+            <button
+              className="rounded-xl bg-ocean px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={isSaving}
+            >
+              {isSaving ? "Saving…" : "Save Note"}
+            </button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 }

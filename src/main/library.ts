@@ -3,6 +3,7 @@ import path from "path";
 import { pathToFileURL } from "url";
 import { DB, DB_FILENAME, getLibraryPlaylistId, openDatabase } from "./db";
 import { enqueueThumbnail, getThumbnailPath } from "./thumbnail";
+import { NOTE_MAX_LENGTH } from "../shared/types";
 import type { FileItem, PendingOpenInfo, PlaylistRequest, PlaylistResponse } from "../shared/types";
 
 const VIDEO_EXTENSIONS = new Set([".mov", ".avi", ".mp4", ".webm", ".mkv"]);
@@ -226,6 +227,7 @@ export class LibraryManager {
         f.ext,
         f.duration_ms,
         f.rating,
+        f.note,
         f.size,
         f.mtime,
         f.created_ms,
@@ -243,6 +245,7 @@ export class LibraryManager {
       ext: string;
       duration_ms: number;
       rating: number;
+      note: string | null;
       size: number;
       mtime: number;
       created_ms: number;
@@ -267,6 +270,7 @@ export class LibraryManager {
         ext: row.ext,
         durationMs: row.duration_ms ?? 0,
         rating: row.rating ?? 0,
+        note: row.note ?? "",
         size: row.size ?? 0,
         mtime: row.mtime ?? 0,
         createdMs: row.created_ms ?? 0,
@@ -287,6 +291,12 @@ export class LibraryManager {
     this.db.prepare("UPDATE files SET rating = ? WHERE id = ?").run(rating, fileId);
   }
 
+  setNote(fileId: number, note: string) {
+    if (!this.db) return;
+    const normalizedNote = note.slice(0, NOTE_MAX_LENGTH);
+    this.db.prepare("UPDATE files SET note = ? WHERE id = ?").run(normalizedNote || null, fileId);
+  }
+
   setDuration(fileId: number, durationMs: number) {
     if (!this.db) return;
     this.db.prepare("UPDATE files SET duration_ms = ? WHERE id = ?").run(durationMs, fileId);
@@ -297,6 +307,23 @@ export class LibraryManager {
     this.db
       .prepare("UPDATE files SET last_played = ?, play_count = play_count + 1 WHERE id = ?")
       .run(Date.now(), fileId);
+  }
+
+  getFileForDeletion(fileId: number) {
+    if (!this.root || !this.db) return null;
+    const row = this.db.prepare("SELECT id, path, name FROM files WHERE id = ? AND is_missing = 0").get(fileId) as
+      | { id: number; path: string; name: string }
+      | undefined;
+    if (!row) return null;
+
+    const absolutePath = path.resolve(this.root, row.path);
+    if (!isInsideRoot(absolutePath, this.root)) return null;
+    return { ...row, absolutePath };
+  }
+
+  removeFile(fileId: number) {
+    if (!this.db) return;
+    this.db.prepare("DELETE FROM files WHERE id = ?").run(fileId);
   }
 
   toggleTag(fileId: number, tagName: string) {

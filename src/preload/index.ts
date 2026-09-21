@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("api", {
   scanLibrary: () => ipcRenderer.invoke("library:scan"),
   getPlaylist: (options: PlaylistRequest) => ipcRenderer.invoke("playlist:get", options),
   setRating: (fileId: number, rating: number) => ipcRenderer.invoke("file:set-rating", { fileId, rating }),
+  setNote: (fileId: number, note: string) => ipcRenderer.invoke("file:set-note", { fileId, note }),
   toggleTag: (fileId: number, tagName: string) =>
     ipcRenderer.invoke("file:toggle-tag", { fileId, tagName }),
   addTag: (tagName: string) => ipcRenderer.invoke("tag:add", tagName),
@@ -19,6 +20,7 @@ contextBridge.exposeInMainWorld("api", {
   setDuration: (fileId: number, durationMs: number) =>
     ipcRenderer.invoke("file:set-duration", { fileId, durationMs }),
   setLastPlayed: (fileId: number) => ipcRenderer.invoke("file:set-last-played", fileId),
+  trashFile: (fileId: number): Promise<boolean> => ipcRenderer.invoke("file:trash", fileId),
   onPendingOpen: (cb: (info: PendingOpenInfo) => void) => {
     const handler = (_: Electron.IpcRendererEvent, info: PendingOpenInfo) => cb(info);
     ipcRenderer.on("app:pending-open", handler);
