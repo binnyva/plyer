@@ -857,6 +857,10 @@ export default function App() {
   };
 
   appMenuCommandHandlerRef.current = (command) => {
+    // Electron menu accelerators bypass the textarea's normal event handling.
+    // Do not let the player-wide Space shortcut run while a note is being edited.
+    if (noteEditorOpen && command.type === "toggle-play") return;
+
     switch (command.type) {
       case "choose-library-root":
         void handleChooseRoot();
@@ -1290,16 +1294,9 @@ export default function App() {
                 >
                   Filters
                 </button>
-                <button
-                  className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                    loopPlaylist
-                      ? "bg-ocean text-white"
-                      : "border border-mist bg-white text-ink-700 dark:border-white/10 dark:bg-white/10 dark:text-white"
-                  }`}
-                  onClick={() => setLoopPlaylist((prev) => !prev)}
-                >
-                  Loop
-                </button>
+                <span className="ml-auto whitespace-nowrap text-xs font-semibold text-ink-600 dark:text-slate-300">
+                  {totalCount} {totalCount === 1 ? "video" : "videos"}
+                </span>
               </div>
 
               {filterMenuOpen && (
@@ -1559,6 +1556,14 @@ function NoteEditorModal({
           className="mt-4 min-h-48 w-full resize-y rounded-2xl border border-mist bg-white p-3 text-sm text-ink-700 outline-none transition focus:border-ocean dark:border-white/10 dark:bg-white/10 dark:text-white"
           value={note}
           onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            // Keep typing and standard clipboard shortcuts within the editor.
+            // Escape is allowed to bubble to the modal's close handler.
+            if (event.key !== "Escape") event.stopPropagation();
+          }}
+          onCopy={(event) => event.stopPropagation()}
+          onCut={(event) => event.stopPropagation()}
+          onPaste={(event) => event.stopPropagation()}
           maxLength={NOTE_MAX_LENGTH}
           placeholder="Add a note about this video"
           disabled={isSaving}
